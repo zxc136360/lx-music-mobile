@@ -55,7 +55,6 @@ export default () => {
       // if (buttons.empty) buttons.empty = false
       if (!buttons.play) return
       buttons.play = false
-      setButtons()
     })()
   }
   const handleStop = () => {
@@ -63,7 +62,6 @@ export default () => {
     buttons.play = false
     readyNowPlayingMusicId = null
     syncedDurationMusicId = null
-    setButtons()
   }
   // const handleStop = () => {
   //   // if (playerState.playMusicInfo.musicInfo != null) return
