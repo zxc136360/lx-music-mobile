@@ -3,6 +3,7 @@ import { Platform } from 'react-native'
 import settingState from '@/store/setting/state'
 import { getAccuratePosition } from './seek'
 import {
+  getNativeFlacDuration,
   getNativeFlacPosition,
   isNativeFlacActive,
 } from './nativeFlac'
@@ -33,26 +34,38 @@ const resolveMetadataDuration = (duration: number) => {
   return getTimelineDuration(playerState.playMusicInfo.musicInfo, duration)
 }
 
+const getCurrentPlaybackDuration = async(targetMusicId: string | null) => {
+  if (isNativeFlacActive()) {
+    if (!targetMusicId || playerState.musicInfo.id != targetMusicId) return 0
+    return getNativeFlacDuration().catch(() => 0)
+  }
+
+  const currentTrack = await getCurrentTrack().catch(() => null)
+  if (!targetMusicId || currentTrack?.musicId != targetMusicId) return 0
+  return getTrackDuration().catch(() => 0)
+}
+
 export const updateMetaData = async(musicInfo: LX.Player.MusicInfo, isPlay: boolean, lyric?: string, force = false) => {
   const prevIsPlaying = state.isPlaying
   state.isPlaying = isPlay
   if (force) {
-    const duration = resolveMetadataDuration(await getTrackDuration())
+    const duration = resolveMetadataDuration(await getCurrentPlaybackDuration(musicInfo.id))
     state.prevDuration = duration
     delayUpdateMusicInfo(musicInfo, lyric, isPlay)
     return
   }
   if (!force && isPlay == prevIsPlaying) {
-    const duration = resolveMetadataDuration(await getTrackDuration())
+    const duration = resolveMetadataDuration(await getCurrentPlaybackDuration(musicInfo.id))
     if (state.prevDuration != duration) {
       state.prevDuration = duration
-      const trackInfo = await getCurrentTrack()
+      const trackInfo = isNativeFlacActive() ? { musicId: musicInfo.id } : await getCurrentTrack()
       if (trackInfo && musicInfo) {
         delayUpdateMusicInfo(musicInfo, lyric, isPlay)
       }
     }
   } else {
-    const [duration, trackInfo] = await Promise.all([getTrackDuration(), getCurrentTrack()])
+    const duration = await getCurrentPlaybackDuration(musicInfo.id)
+    const trackInfo = isNativeFlacActive() ? { musicId: musicInfo.id } : await getCurrentTrack()
     state.prevDuration = resolveMetadataDuration(duration)
     if (trackInfo && musicInfo) {
       delayUpdateMusicInfo(musicInfo, lyric, isPlay)
@@ -138,10 +151,7 @@ const updateMetaInfo = async(mInfo: LX.Player.MusicInfo, lyric?: string, isPlayi
 export const updateMetaDataImmediately = async(mInfo: LX.Player.MusicInfo, isPlaying = state.isPlaying, lyric?: string) => {
   const sync = async(targetIsPlaying: boolean) => {
     state.isPlaying = targetIsPlaying
-    const currentTrack = await getCurrentTrack().catch(() => null)
-    const duration = currentTrack?.musicId === mInfo.id
-      ? await getTrackDuration().catch(() => 0)
-      : 0
+    const duration = await getCurrentPlaybackDuration(mInfo.id)
     state.prevDuration = resolveMetadataDuration(duration)
     await updateMetaInfo(mInfo, lyric, targetIsPlaying)
     return state.prevDuration
