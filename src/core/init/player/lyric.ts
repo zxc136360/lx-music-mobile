@@ -3,7 +3,7 @@ import { updateSetting } from '@/core/common'
 import { onDesktopLyricPositionChange, showDesktopLyric, onLyricLinePlay, showRemoteLyric } from '@/core/desktopLyric'
 import playerState from '@/store/player/state'
 import { updateNowPlayingTitles } from '@/plugins/player/utils'
-import { updateMetaData } from '@/plugins/player'
+import { updateDisplayMetaData } from '@/plugins/player'
 import { setLastLyric } from '@/core/player/playInfo'
 import { Platform } from 'react-native'
 import settingState from '@/store/setting/state'
@@ -64,7 +64,7 @@ export default async(setting: LX.AppSetting) => {
       prevLyric = lyric
       void updateRemoteLyric(lyric)
       if (settingState.setting['player.isShowBluetoothLyric'] && playerState.playMusicInfo.musicInfo) {
-        void updateMetaData(playerState.musicInfo, playerState.isPlay, lyric, true)
+        void updateDisplayMetaData(playerState.musicInfo, lyric, playerState.isPlay)
       }
     })
   }

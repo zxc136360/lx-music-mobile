@@ -1,4 +1,4 @@
-import { getPosition, updateMetaData } from '@/plugins/player'
+import { getPosition, updateMetaData, updateMetaDataImmediately } from '@/plugins/player'
 import playerState from '@/store/player/state'
 import settingState from '@/store/setting/state'
 import { pauseNowPlaying, playNowPlaying, stopNowPlaying } from '@/utils/nativeModules/nowPlaying'
@@ -39,7 +39,12 @@ export const syncNowPlayingProgress = async(elapsedTime?: number) => {
   }).catch(() => {})
 }
 
-export const syncNowPlayingMetadata = (force = false) => {
+export const syncNowPlayingMetadata = async(force = false) => {
   if (!playerState.playMusicInfo.musicInfo) return
-  void updateMetaData(playerState.musicInfo, playerState.isPlay, playerState.lastLyric, force)
+  await updateMetaData(playerState.musicInfo, playerState.isPlay, playerState.lastLyric, force).catch(() => {})
+}
+
+export const syncNowPlayingMetadataImmediately = async() => {
+  if (!playerState.playMusicInfo.musicInfo) return
+  await updateMetaDataImmediately(playerState.musicInfo, playerState.isPlay, playerState.lastLyric).catch(() => {})
 }

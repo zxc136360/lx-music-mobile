@@ -161,6 +161,27 @@ export const updateCurrentTrackMetadata = async(metadata: {
   }
 }
 
+export const updateNowPlayingDisplayMetadata = async(metadata: {
+  title?: string
+  artist?: string
+  album?: string
+  artwork?: string
+  playbackRate?: number
+  lyric?: string
+}) => {
+  if (Platform.OS == 'ios') {
+    const nowPlayingMetadata: Parameters<typeof updateNowPlayingInfo>[0] = {
+      ...metadata,
+      artwork: metadata.artwork ?? '',
+    }
+    if (metadata.playbackRate !== undefined) nowPlayingMetadata.playbackRate = metadata.playbackRate
+    await updateNowPlayingInfo(nowPlayingMetadata).catch(() => {})
+    return
+  }
+
+  await updateCurrentTrackMetadata(metadata)
+}
+
 export const ensureCurrentTrackMetadata = (metadata: {
   title?: string
   artist?: string

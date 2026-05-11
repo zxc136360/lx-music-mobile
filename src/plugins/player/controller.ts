@@ -1,7 +1,7 @@
 import TrackPlayer from 'react-native-track-player'
 import { Platform } from 'react-native'
 import BackgroundTimer from 'react-native-background-timer'
-import { updateMetaData } from './playList'
+import { updateMetaDataImmediately } from './playList'
 import { initUnifiedPlayerEngine, onUnifiedPlayerEvent } from './engine'
 import { getNativeFlacTrackId, setNativeFlacRate, setNativeFlacVolume } from './nativeFlac'
 import { getPosition, isEmpty, setStop } from './utils'
@@ -132,7 +132,7 @@ export const initUnifiedPlayerController = () => {
             if (Platform.OS == 'ios' && playerState.musicInfo.id) {
               // Refresh duration/elapsed metadata after playback actually starts so the
               // iOS lockscreen can render an active progress bar.
-              void updateMetaData(playerState.musicInfo, true, playerState.lastLyric, true)
+              void updateMetaDataImmediately(playerState.musicInfo, true, playerState.lastLyric)
             }
             global.app_event.playerPlaying()
             global.app_event.play()

@@ -9,7 +9,7 @@ import { useSettingValue } from '@/store/setting/hook'
 import CheckBoxItem from '../../components/CheckBoxItem'
 import { updateNowPlayingTitles } from '@/plugins/player/utils'
 import playerState from '@/store/player/state'
-import { syncNowPlayingMetadata } from '@/core/player/nowPlaying'
+import { syncNowPlayingMetadataImmediately } from '@/core/player/nowPlaying'
 
 export default memo(() => {
   const t = useI18n()
@@ -18,7 +18,7 @@ export default memo(() => {
     if (isShowBluetoothFullLyric) await remoteLyricTip()
     updateSetting({ 'player.isShowBluetoothFullLyric': isShowBluetoothFullLyric })
     if (Platform.OS == 'ios') {
-      syncNowPlayingMetadata(true)
+      void syncNowPlayingMetadataImmediately()
       return
     }
     if (isShowBluetoothFullLyric && playerState.musicInfo.lrc) {

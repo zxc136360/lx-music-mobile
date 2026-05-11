@@ -1,7 +1,7 @@
 import TrackPlayer, { State } from 'react-native-track-player'
 import { Platform } from 'react-native'
 import { updateOptions, setVolume, setPlaybackRate, migratePlayerCache, destroy as destroyPlayer, getPosition } from './utils'
-import { getCurrentTrack, restoreTrack, updateMetaData } from './playList'
+import { getCurrentTrack, restoreTrack, updateDisplayMetaData, updateMetaData, updateMetaDataImmediately } from './playList'
 import { isNativeFlacActive, restoreNativeFlacPlayback, snapshotNativeFlacPlayback } from './nativeFlac'
 import { soundEffectController } from './soundEffect'
 import settingState from '@/store/setting/state'
@@ -127,3 +127,8 @@ export {
   useBufferProgress,
   initTrackInfo,
 } from './utils'
+
+export {
+  updateDisplayMetaData,
+  updateMetaDataImmediately,
+}

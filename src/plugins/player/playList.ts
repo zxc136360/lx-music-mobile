@@ -17,6 +17,7 @@ import {
   restoreTrack,
   trackPlayerState as state,
   updateCurrentTrackMetadata,
+  updateNowPlayingDisplayMetadata,
 } from './trackPlayerCore'
 import { loadPlaybackResource } from './engine/resourceLoader'
 
@@ -81,25 +82,11 @@ export const playMusic = (musicInfo: LX.Player.PlayMusic, url: string, time: num
 
 // let musicId = null
 // let duration = 0
-const updateMetaInfo = async(mInfo: LX.Player.MusicInfo, lyric?: string, isPlaying = state.isPlaying) => {
-  console.log('updateMetaInfo', lyric)
+const buildDisplayMetadata = (mInfo: LX.Player.MusicInfo, lyric?: string, isPlaying = state.isPlaying) => {
   const isShowNotificationImage = settingState.setting['player.isShowNotificationImage']
-  // const mInfo = formatMusicInfo(musicInfo)
-  // console.log('+++++updateMusicPic+++++', track.artwork, track.duration)
-
-  // if (track.musicId == musicId) {
-  //   if (global.playInfo.musicInfo.img != null) artwork = global.playInfo.musicInfo.img
-  //   if (track.duration != null) duration = global.playInfo.duration
-  // } else {
-  //   musicId = track.musicId
-  //   artwork = global.playInfo.musicInfo.img
-  //   duration = global.playInfo.duration || 0
-  // }
-  // console.log('+++++updateMetaInfo+++++', mInfo.name)
-  state.isPlaying = isPlaying
   let artwork = isShowNotificationImage ? mInfo.pic ?? undefined : undefined
   const fullLyric = getCurrentFullLyric(mInfo.id)
-  const shouldShowBluetoothLyric = settingState.setting['player.isShowBluetoothLyric'] && state.isPlaying && lyric != null
+  const shouldShowBluetoothLyric = settingState.setting['player.isShowBluetoothLyric'] && isPlaying && lyric != null
   let name: string
   let singer: string
   let album: string | undefined
@@ -116,18 +103,43 @@ const updateMetaInfo = async(mInfo: LX.Player.MusicInfo, lyric?: string, isPlayi
     singer = `${mInfo.name}${mInfo.singer ? ` - ${mInfo.singer}` : ''}`
     album = mInfo.album ?? undefined
   }
-  const metadata = {
+  return {
     title: name,
     artist: singer,
     album,
     artwork,
+    lyric: fullLyric,
+  }
+}
+
+export const updateDisplayMetaData = async(mInfo: LX.Player.MusicInfo, lyric?: string, isPlaying = state.isPlaying) => {
+  state.isPlaying = isPlaying
+  const displayMetadata = buildDisplayMetadata(mInfo, lyric, isPlaying)
+  await updateNowPlayingDisplayMetadata(displayMetadata)
+}
+
+const updateMetaInfo = async(mInfo: LX.Player.MusicInfo, lyric?: string, isPlaying = state.isPlaying) => {
+  console.log('updateMetaInfo', lyric)
+  state.isPlaying = isPlaying
+  const displayMetadata = buildDisplayMetadata(mInfo, lyric, isPlaying)
+  const metadata = {
+    ...displayMetadata,
     duration: state.prevDuration || 0,
     elapsedTime: isNativeFlacActive()
       ? await getNativeFlacPosition().catch(() => 0)
       : await getAccuratePosition().catch(() => 0),
-    lyric: fullLyric,
   }
   await updateCurrentTrackMetadata(metadata)
+}
+
+export const updateMetaDataImmediately = async(mInfo: LX.Player.MusicInfo, isPlaying = state.isPlaying, lyric?: string) => {
+  state.isPlaying = isPlaying
+  const currentTrack = await getCurrentTrack().catch(() => null)
+  const duration = currentTrack?.musicId === mInfo.id
+    ? await getTrackDuration().catch(() => 0)
+    : 0
+  state.prevDuration = resolveMetadataDuration(duration)
+  await updateMetaInfo(mInfo, lyric, isPlaying)
 }
 
 

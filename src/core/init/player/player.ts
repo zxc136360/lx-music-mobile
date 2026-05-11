@@ -1,5 +1,6 @@
 import { addPlayedList, clearPlayedList } from '@/core/player/playedList'
 import { pause, playNext } from '@/core/player/player'
+import { syncNowPlayingMetadataImmediately } from '@/core/player/nowPlaying'
 import { setStatusText, setIsPlay } from '@/core/player/playStatus'
 // import { resetPlayerMusicInfo } from '@/core/player/playInfo'
 import { setStop } from '@/plugins/player'
@@ -48,6 +49,10 @@ export default async(setting: LX.AppSetting) => {
 
   const refreshNowPlaying = () => {
     if (!playerState.playMusicInfo.musicInfo) return
+    if (Platform.OS == 'ios') {
+      void syncNowPlayingMetadataImmediately()
+      return
+    }
     void updateMetaData(playerState.musicInfo, playerState.isPlay, playerState.lastLyric, true)
   }
 

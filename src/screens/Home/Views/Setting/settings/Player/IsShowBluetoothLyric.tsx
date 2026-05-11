@@ -11,7 +11,7 @@ import { showRemoteLyric } from '@/core/desktopLyric'
 import { setLastLyric } from '@/core/player/playInfo'
 import { updateNowPlayingTitles } from '@/plugins/player/utils'
 import playerState from '@/store/player/state'
-import { syncNowPlayingMetadata } from '@/core/player/nowPlaying'
+import { syncNowPlayingMetadataImmediately } from '@/core/player/nowPlaying'
 
 export default memo(() => {
   const t = useI18n()
@@ -23,7 +23,7 @@ export default memo(() => {
     updateSetting({ 'player.isShowBluetoothLyric': isShowBluetoothLyric })
     if (Platform.OS == 'ios') {
       if (!isShowBluetoothLyric) setLastLyric()
-      syncNowPlayingMetadata(true)
+      void syncNowPlayingMetadataImmediately()
       return
     }
     void showRemoteLyric(isShowBluetoothLyric)

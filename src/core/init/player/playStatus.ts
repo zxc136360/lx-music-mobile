@@ -1,6 +1,6 @@
 // import { LIST_ID_LOVE } from '@/config/constant'
 
-import { syncNowPlayingMetadata, syncNowPlayingProgress, syncNowPlayingState } from '@/core/player/nowPlaying'
+import { syncNowPlayingMetadata, syncNowPlayingMetadataImmediately, syncNowPlayingProgress, syncNowPlayingState } from '@/core/player/nowPlaying'
 import playerState from '@/store/player/state'
 
 export default () => {
@@ -17,10 +17,11 @@ export default () => {
     lockLrc: false,
   }
   let syncedDurationMusicId: string | null = null
+  let readyNowPlayingMusicId: string | null = null
   const setButtons = () => {
     // setPlayerAction(buttons)
     if (!playerState.playMusicInfo.musicInfo) return
-    syncNowPlayingMetadata()
+    void syncNowPlayingMetadata()
   }
   const syncPlaybackRate = () => {
     if (!playerState.playMusicInfo.musicInfo) return
@@ -39,11 +40,13 @@ export default () => {
 
   const handlePlay = () => {
     void (async() => {
+      if (readyNowPlayingMusicId !== playerState.playMusicInfo.musicInfo?.id) {
+        await syncNowPlayingMetadataImmediately()
+      }
       await syncNowPlayingState('play')
       // if (buttons.empty) buttons.empty = false
       if (buttons.play) return
       buttons.play = true
-      setButtons()
     })()
   }
   const handlePause = () => {
@@ -58,6 +61,8 @@ export default () => {
   const handleStop = () => {
     void syncNowPlayingState('stop')
     buttons.play = false
+    readyNowPlayingMusicId = null
+    syncedDurationMusicId = null
     setButtons()
   }
   // const handleStop = () => {
@@ -69,19 +74,27 @@ export default () => {
   const handleSetPlayInfo = () => {
     if (!playerState.playMusicInfo.musicInfo) return
     syncedDurationMusicId = null
-    syncNowPlayingMetadata(true)
+    readyNowPlayingMusicId = null
+    void syncNowPlayingMetadataImmediately()
   }
   const handlePlayProgressChanged: typeof global.state_event.playProgressChanged = (progress) => {
     const musicId = playerState.playMusicInfo.musicInfo?.id
     if (!musicId || progress.maxPlayTime <= 0) return
     if (syncedDurationMusicId == musicId) return
     syncedDurationMusicId = musicId
-    syncNowPlayingMetadata(true)
+    void (async() => {
+      await syncNowPlayingMetadataImmediately()
+      if (playerState.playMusicInfo.musicInfo?.id != musicId) return
+      readyNowPlayingMusicId = musicId
+      if (!playerState.isPlay) return
+      await syncNowPlayingProgress(progress.nowPlayTime)
+    })()
   }
   const handlePlayProgressSync: typeof global.state_event.playProgressChanged = (progress) => {
-    if (!playerState.isPlay) return
-    if (!playerState.playMusicInfo.musicInfo) return
+    const musicId = playerState.playMusicInfo.musicInfo?.id
+    if (!playerState.isPlay || !musicId) return
     if (progress.maxPlayTime <= 0) return
+    if (readyNowPlayingMusicId != musicId) return
     void syncNowPlayingProgress(progress.nowPlayTime)
   }
   const handleConfigUpdated: typeof global.state_event.configUpdated = (keys) => {
