@@ -6,12 +6,13 @@ import { initUnifiedPlayerEngine, onUnifiedPlayerEvent } from './engine'
 import { getNativeFlacTrackId, setNativeFlacRate, setNativeFlacVolume } from './nativeFlac'
 import { getPosition, isEmpty, setStop } from './utils'
 import { exitApp } from '@/core/common'
+import { setMaxplayTime, setNowPlayTime } from '@/core/player/progress'
+import { getTimelineDuration } from '@/core/player/timeline'
 import { playNext, setMusicUrl } from '@/core/player/player'
 import { setStatusText } from '@/core/player/playStatus'
 import { isActive } from '@/utils/tools'
 import playerState from '@/store/player/state'
 import settingState from '@/store/setting/state'
-import { setNowPlayTime } from '@/core/player/progress'
 
 let isInitialized = false
 
@@ -115,8 +116,8 @@ export const initUnifiedPlayerController = () => {
             break
           case 'buffering':
             if (!global.lx.isPlayedStop && playerState.musicInfo.id) startLoadingTimeout()
-            if (event.driver == 'nativeFlac' && Platform.OS == 'ios' && (event.duration ?? 0) > 0 && playerState.musicInfo.id) {
-              void updateMetaDataImmediately(playerState.musicInfo, playerState.isPlay, playerState.lastLyric)
+            if (event.driver == 'nativeFlac' && (event.duration ?? 0) > 0 && playerState.musicInfo.id) {
+              setMaxplayTime(getTimelineDuration(playerState.playMusicInfo.musicInfo, event.duration!))
             }
             global.app_event.pause()
             global.app_event.playerWaiting()
@@ -132,6 +133,9 @@ export const initUnifiedPlayerController = () => {
             } else if (Platform.OS == 'ios') {
               void TrackPlayer.setVolume(settingState.setting['player.volume'])
             }
+            if (event.driver == 'nativeFlac' && (event.duration ?? 0) > 0 && playerState.musicInfo.id) {
+              setMaxplayTime(getTimelineDuration(playerState.playMusicInfo.musicInfo, event.duration!))
+            }
             if (Platform.OS == 'ios' && playerState.musicInfo.id) {
               // Refresh duration/elapsed metadata after playback actually starts so the
               // iOS lockscreen can render an active progress bar.
@@ -141,8 +145,8 @@ export const initUnifiedPlayerController = () => {
             global.app_event.play()
             break
           case 'paused':
-            if (event.driver == 'nativeFlac' && Platform.OS == 'ios' && (event.duration ?? 0) > 0 && playerState.musicInfo.id) {
-              void updateMetaDataImmediately(playerState.musicInfo, false, playerState.lastLyric)
+            if (event.driver == 'nativeFlac' && (event.duration ?? 0) > 0 && playerState.musicInfo.id) {
+              setMaxplayTime(getTimelineDuration(playerState.playMusicInfo.musicInfo, event.duration!))
             }
           // fallthrough
           case 'stopped':

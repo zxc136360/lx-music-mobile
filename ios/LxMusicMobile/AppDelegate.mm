@@ -497,12 +497,6 @@ static NSString *LXNowPlayingArtworkPath = nil;
 static NSUInteger LXNowPlayingArtworkRequestId = 0;
 static MPNowPlayingPlaybackState LXNowPlayingState = MPNowPlayingPlaybackStateStopped;
 static BOOL LXIsReceivingRemoteControlEvents = NO;
-typedef NS_ENUM(NSInteger, LXNowPlayingProvider) {
-  LXNowPlayingProviderNone = 0,
-  LXNowPlayingProviderTrackPlayer,
-  LXNowPlayingProviderStreamingFlac,
-};
-static LXNowPlayingProvider LXCurrentNowPlayingProvider = LXNowPlayingProviderNone;
 static NSString * const LXTrackPlayerLifecycleNotificationName = @"LXTrackPlayerLifecycle";
 static id LXTrackPlayerLifecycleObserver = nil;
 static NSString * const LXRemoteCommandNotificationName = @"LXRemoteCommand";
@@ -532,10 +526,6 @@ static MPRemoteCommandHandlerStatus LXHandleRemoteChangePlaybackPositionEvent(MP
 static NSMutableDictionary *LXNowPlayingMutableInfo(void) {
   if (LXNowPlayingInfoCache == nil) LXNowPlayingInfoCache = [NSMutableDictionary dictionary];
   return LXNowPlayingInfoCache;
-}
-
-static void LXSetNowPlayingProvider(LXNowPlayingProvider provider) {
-  LXCurrentNowPlayingProvider = provider;
 }
 
 static void LXInstallRemoteCommandHandlers(void) {
@@ -726,7 +716,6 @@ static void LXClearNowPlayingInfo(void) {
   LXNowPlayingArtworkPath = nil;
   LXNowPlayingInfoCache = nil;
   LXNowPlayingState = MPNowPlayingPlaybackStateStopped;
-  LXSetNowPlayingProvider(LXNowPlayingProviderNone);
   LXApplyNowPlayingInfo();
 }
 
@@ -739,12 +728,10 @@ static void LXHandleTrackPlayerLifecycleNotification(NSNotification *notificatio
   NSNumber *rate = [userInfo[@"rate"] isKindOfClass:[NSNumber class]] ? userInfo[@"rate"] : nil;
 
   if ([event isEqualToString:@"destroy"] || [event isEqualToString:@"reset"]) {
-    if (LXCurrentNowPlayingProvider != LXNowPlayingProviderTrackPlayer) return;
     LXClearNowPlayingInfo();
     return;
   }
 
-  if (LXCurrentNowPlayingProvider != LXNowPlayingProviderTrackPlayer) return;
   if (LXNowPlayingInfoCache.count == 0) return;
 
   if (duration != nil && duration.doubleValue > 0) {
@@ -782,7 +769,6 @@ static void LXRegisterTrackPlayerLifecycleObserver(void) {
 }
 
 static void LXSetNowPlayingInfo(NSDictionary *metadata) {
-  LXSetNowPlayingProvider(LXNowPlayingProviderTrackPlayer);
   NSMutableDictionary *info = LXNowPlayingMutableInfo();
 
   NSString *title = [metadata[@"title"] isKindOfClass:[NSString class]] ? metadata[@"title"] : nil;
@@ -2460,7 +2446,6 @@ RCT_EXPORT_MODULE();
 }
 
 - (void)emitState:(NSString *)state position:(NSNumber *)position duration:(NSNumber *)duration {
-  LXSetNowPlayingProvider(LXNowPlayingProviderStreamingFlac);
   self.currentState = state ?: @"idle";
   NSNumber *resolvedPosition = position ?: @(self.lastKnownPosition);
   NSNumber *resolvedDuration = duration ?: @(self.duration);
@@ -2600,9 +2585,6 @@ RCT_EXPORT_MODULE();
 }
 
 - (void)resetStreamingState {
-  if (LXCurrentNowPlayingProvider == LXNowPlayingProviderStreamingFlac) {
-    LXSetNowPlayingProvider(LXNowPlayingProviderNone);
-  }
   self.streamData = [NSMutableData data];
   self.readOffset = 0;
   self.streamError = nil;
@@ -3344,9 +3326,6 @@ RCT_EXPORT_MODULE();
         self.lastKnownPosition = [self currentPlaybackPositionLocked];
         self.playbackStarted = NO;
         self.currentState = @"stopped";
-        if (LXCurrentNowPlayingProvider == LXNowPlayingProviderStreamingFlac) {
-          LXSetNowPlayingProvider(LXNowPlayingProviderNone);
-        }
         [self emitEventWithType:@"ended" body:@{
           @"state": @"stopped",
           @"position": @(self.lastKnownPosition),
@@ -3427,7 +3406,6 @@ RCT_REMAP_METHOD(openStream, openStream:(NSString *)urlString headers:(NSDiction
     [self resetStreamingState];
     self.currentURL = urlString;
     self.currentState = @"loading";
-    LXSetNowPlayingProvider(LXNowPlayingProviderStreamingFlac);
     self.currentVolume = [volume floatValue];
     self.currentRate = MAX([rate floatValue], 0.5f);
     BOOL shouldAutoplay = autoplay == nil ? YES : [autoplay boolValue];
@@ -3517,9 +3495,6 @@ RCT_REMAP_METHOD(stop, stopStreamWithResolver:(RCTPromiseResolveBlock)resolve re
   self.interruptedBySystem = NO;
   [self stopStreamingInternal:YES];
   self.currentState = @"stopped";
-  if (LXCurrentNowPlayingProvider == LXNowPlayingProviderStreamingFlac) {
-    LXSetNowPlayingProvider(LXNowPlayingProviderNone);
-  }
   [self emitState:@"stopped" position:@0 duration:@(self.duration)];
   resolve(nil);
 }
@@ -3529,9 +3504,6 @@ RCT_REMAP_METHOD(reset, resetStreamWithResolver:(RCTPromiseResolveBlock)resolve 
   [self resetStreamingState];
   LXEndReceivingRemoteControlEvents();
   self.currentState = @"idle";
-  if (LXCurrentNowPlayingProvider == LXNowPlayingProviderStreamingFlac) {
-    LXSetNowPlayingProvider(LXNowPlayingProviderNone);
-  }
   [self emitState:@"idle" position:@0 duration:@0];
   resolve(nil);
 }
@@ -3693,6 +3665,11 @@ RCT_REMAP_METHOD(getState, getStreamStateWithResolver:(RCTPromiseResolveBlock)re
     ? (double)streamInfo->total_samples / streamInfo->sample_rate
     : 0;
   [self configureAudioGraphWithSampleRate:self.sampleRate channels:self.channels bitsPerSample:self.bitsPerSample];
+  if (self.duration > 0 && self.currentURL.length > 0 &&
+      ![self.currentState isEqualToString:@"idle"] &&
+      ![self.currentState isEqualToString:@"stopped"]) {
+    [self emitState:self.currentState position:@(self.lastKnownPosition) duration:@(self.duration)];
+  }
 }
 
 - (FLAC__StreamDecoderWriteStatus)handleFrame:(const FLAC__Frame *)frame buffer:(const FLAC__int32 * const[])decodedBuffer {
