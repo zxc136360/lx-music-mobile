@@ -24,6 +24,8 @@ export const createNativeFlacDriver = (bus: UnifiedPlayerEventBus) => {
                     : event.state == 'stopped'
                       ? 'stopped'
                       : 'idle',
+            position: event.position,
+            duration: event.duration,
           })
           break
         case 'ended':

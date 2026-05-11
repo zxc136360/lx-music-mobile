@@ -115,6 +115,9 @@ export const initUnifiedPlayerController = () => {
             break
           case 'buffering':
             if (!global.lx.isPlayedStop && playerState.musicInfo.id) startLoadingTimeout()
+            if (event.driver == 'nativeFlac' && Platform.OS == 'ios' && (event.duration ?? 0) > 0 && playerState.musicInfo.id) {
+              void updateMetaDataImmediately(playerState.musicInfo, playerState.isPlay, playerState.lastLyric)
+            }
             global.app_event.pause()
             global.app_event.playerWaiting()
             setStatusText(global.i18n.t('player__buffering'))
@@ -138,6 +141,10 @@ export const initUnifiedPlayerController = () => {
             global.app_event.play()
             break
           case 'paused':
+            if (event.driver == 'nativeFlac' && Platform.OS == 'ios' && (event.duration ?? 0) > 0 && playerState.musicInfo.id) {
+              void updateMetaDataImmediately(playerState.musicInfo, false, playerState.lastLyric)
+            }
+          // fallthrough
           case 'stopped':
           case 'idle':
             clearLoadingTimeout()

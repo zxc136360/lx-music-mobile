@@ -13,6 +13,8 @@ export type UnifiedPlayerEvent =
     type: 'state'
     driver: UnifiedDriverName
     state: UnifiedPlaybackState
+    position?: number
+    duration?: number
   }
   | {
     type: 'error'
