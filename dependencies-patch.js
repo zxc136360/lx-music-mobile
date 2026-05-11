@@ -1038,6 +1038,125 @@ const patchTrackPlayerSoundEffectRefresh = async() => {
   })
 }
 
+const patchTrackPlayerLifecycleSync = async() => {
+  const filePath = 'node_modules/react-native-track-player/ios/RNTrackPlayer/RNTrackPlayer.swift'
+
+  await patchFileByRegex({
+    filePath,
+    pattern: /private weak var soundEffectPlayerItem: AVPlayerItem\?\n/,
+    replacement: `private weak var soundEffectPlayerItem: AVPlayerItem?
+    private var lifecycleSyncTimer: Timer?
+`,
+  })
+
+  await patchFileByRegex({
+    filePath,
+    pattern: /private func postLifecycleEvent\(_ event: String, state: AVPlayerWrapperState\? = nil, position: Double\? = nil, rate: Float\? = nil, extra: \[String: Any\] = \[:\]\) \{[\s\S]*?NotificationCenter\.default\.post\(name: lxTrackPlayerLifecycleNotification, object: self, userInfo: userInfo\)\n    \}/,
+    replacement: `private func postLifecycleEvent(_ event: String, state: AVPlayerWrapperState? = nil, position: Double? = nil, rate: Float? = nil, extra: [String: Any] = [:]) {
+        var userInfo = extra
+        let lifecycleState = state ?? player.playerState
+        userInfo["event"] = event
+        userInfo["state"] = lifecycleStateName(lifecycleState)
+        userInfo["position"] = position ?? player.currentTime
+        userInfo["rate"] = rate ?? player.rate
+        userInfo["duration"] = player.duration
+        userInfo["track"] = player.currentIndex
+
+        NotificationCenter.default.post(name: lxTrackPlayerLifecycleNotification, object: self, userInfo: userInfo)
+    }
+
+    private func stopLifecycleSyncTimer() {
+        lifecycleSyncTimer?.invalidate()
+        lifecycleSyncTimer = nil
+    }
+
+    private func stopLifecycleSyncTimerOnMainThread() {
+        if Thread.isMainThread {
+            stopLifecycleSyncTimer()
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.stopLifecycleSyncTimer()
+        }
+    }
+
+    private func refreshLifecycleSyncTimer() {
+        stopLifecycleSyncTimer()
+
+        switch player.playerState {
+        case .playing, .paused, .ready, .loading:
+            break
+        default:
+            return
+        }
+
+        let timer = Timer(timeInterval: 0.75, repeats: true) { [weak self] _ in
+            self?.postLifecycleEvent("state")
+        }
+        lifecycleSyncTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func refreshLifecycleSyncTimerOnMainThread() {
+        if Thread.isMainThread {
+            refreshLifecycleSyncTimer()
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshLifecycleSyncTimer()
+        }
+    }`,
+  })
+
+  await patchFileByRegex({
+    filePath,
+    pattern: /deinit \{\n\s*NotificationCenter\.default\.removeObserver\(self, name: lxSoundEffectConfigNotification, object: nil\)/,
+    replacement: `deinit {
+        stopLifecycleSyncTimerOnMainThread()
+        NotificationCenter.default.removeObserver(self, name: lxSoundEffectConfigNotification, object: nil)`,
+  })
+
+  await patchFileByRegex({
+    filePath,
+    pattern: /self\.player\.stop\(\)\n\s*soundEffectPlayerItem\?\.audioMix = nil/,
+    replacement: `self.player.stop()
+        stopLifecycleSyncTimerOnMainThread()
+        soundEffectPlayerItem?.audioMix = nil`,
+  })
+
+  await patchFileByRegex({
+    filePath,
+    pattern: /player\.stop\(\)\n\s*soundEffectPlayerItem\?\.audioMix = nil/,
+    replacement: `player.stop()
+        stopLifecycleSyncTimerOnMainThread()
+        soundEffectPlayerItem?.audioMix = nil`,
+  })
+
+  await patchFileByRegex({
+    filePath,
+    pattern: /player\.stop\(\)\n\s*postLifecycleEvent\("stop", state: \.idle, position: 0, rate: 0\)/,
+    replacement: `player.stop()
+        stopLifecycleSyncTimerOnMainThread()
+        postLifecycleEvent("stop", state: .idle, position: 0, rate: 0)`,
+  })
+
+  await patchFileByRegex({
+    filePath,
+    pattern: /func handleAudioPlayerStateChange\(state: AVPlayerWrapperState\) \{\n\s*refreshSoundEffectAudioMixOnMainThread\(\)/,
+    replacement: `func handleAudioPlayerStateChange(state: AVPlayerWrapperState) {
+        refreshSoundEffectAudioMixOnMainThread()
+        refreshLifecycleSyncTimerOnMainThread()`,
+  })
+
+  await patchFileByRegex({
+    filePath,
+    pattern: /func handleAudioPlayerQueueIndexChange\(previousIndex: Int\?, nextIndex: Int\?\) \{\n\s*refreshSoundEffectAudioMixOnMainThread\(\)/,
+    replacement: `func handleAudioPlayerQueueIndexChange(previousIndex: Int?, nextIndex: Int?) {
+        refreshSoundEffectAudioMixOnMainThread()
+        refreshLifecycleSyncTimerOnMainThread()`,
+  })
+}
+
 ;(async() => {
   for (const target of patchTargets) {
     try {
@@ -1055,6 +1174,11 @@ const patchTrackPlayerSoundEffectRefresh = async() => {
     await patchTrackPlayerSoundEffectRefresh()
   } catch (err) {
     console.error(`Patch TrackPlayer sound effect refresh failed: ${err.message}`)
+  }
+  try {
+    await patchTrackPlayerLifecycleSync()
+  } catch (err) {
+    console.error(`Patch TrackPlayer lifecycle sync failed: ${err.message}`)
   }
   try {
     await ensureFileContent({
