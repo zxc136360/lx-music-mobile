@@ -4,6 +4,7 @@ import settingState from '@/store/setting/state'
 import { pauseNowPlaying, playNowPlaying, stopNowPlaying } from '@/utils/nativeModules/nowPlaying'
 
 const getElapsedTime = async() => getPosition().catch(() => playerState.progress.nowPlayTime)
+const getPlaybackRate = () => playerState.isPlay ? settingState.setting['player.playbackRate'] : 0
 
 export const syncNowPlayingState = async(type: 'play' | 'pause' | 'stop') => {
   const elapsedTime = type == 'stop' ? 0 : await getElapsedTime()
@@ -27,6 +28,14 @@ export const syncNowPlayingState = async(type: 'play' | 'pause' | 'stop') => {
   await stopNowPlaying({
     elapsedTime,
     playbackRate: 0,
+  }).catch(() => {})
+}
+
+export const syncNowPlayingProgress = async(elapsedTime?: number) => {
+  if (!playerState.playMusicInfo.musicInfo || !playerState.isPlay) return
+  await playNowPlaying({
+    elapsedTime: elapsedTime ?? await getElapsedTime(),
+    playbackRate: getPlaybackRate(),
   }).catch(() => {})
 }
 

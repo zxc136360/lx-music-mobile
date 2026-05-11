@@ -1,6 +1,6 @@
 // import { LIST_ID_LOVE } from '@/config/constant'
 
-import { syncNowPlayingMetadata, syncNowPlayingState } from '@/core/player/nowPlaying'
+import { syncNowPlayingMetadata, syncNowPlayingProgress, syncNowPlayingState } from '@/core/player/nowPlaying'
 import playerState from '@/store/player/state'
 
 export default () => {
@@ -78,6 +78,12 @@ export default () => {
     syncedDurationMusicId = musicId
     syncNowPlayingMetadata(true)
   }
+  const handlePlayProgressSync: typeof global.state_event.playProgressChanged = (progress) => {
+    if (!playerState.isPlay) return
+    if (!playerState.playMusicInfo.musicInfo) return
+    if (progress.maxPlayTime <= 0) return
+    void syncNowPlayingProgress(progress.nowPlayTime)
+  }
   const handleConfigUpdated: typeof global.state_event.configUpdated = (keys) => {
     if (!keys.includes('player.playbackRate')) return
     syncPlaybackRate()
@@ -102,6 +108,7 @@ export default () => {
   global.app_event.on('musicToggled', handleSetPlayInfo)
   global.state_event.on('configUpdated', handleConfigUpdated)
   global.state_event.on('playProgressChanged', handlePlayProgressChanged)
+  global.state_event.on('playProgressChanged', handlePlayProgressSync)
   // window.app_event.on(eventTaskbarNames.setTaskbarThumbnailClip, handleSetTaskbarThumbnailClip)
   // window.app_event.on('myListMusicUpdate', throttleListChange)
 
