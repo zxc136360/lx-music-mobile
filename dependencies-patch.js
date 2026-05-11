@@ -64,6 +64,7 @@ public class RNTrackPlayer: RCTEventEmitter {
         userInfo["state"] = lifecycleStateName(lifecycleState)
         userInfo["position"] = position ?? player.currentTime
         userInfo["rate"] = rate ?? player.rate
+        userInfo["duration"] = player.duration
         userInfo["track"] = player.currentIndex
 
         NotificationCenter.default.post(name: lxTrackPlayerLifecycleNotification, object: self, userInfo: userInfo)

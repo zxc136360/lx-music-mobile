@@ -24,6 +24,9 @@ import { loadPlaybackResource } from './engine/resourceLoader'
 export { getCurrentTrack, restoreTrack }
 export { state }
 
+const wait = async(ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+const immediateMetadataRetryDelays = [180, 520, 1100]
+
 const resolveMetadataDuration = (duration: number) => {
   if (duration > 0) return duration
   if (playerState.progress.maxPlayTime > 0) return playerState.progress.maxPlayTime
@@ -133,13 +136,28 @@ const updateMetaInfo = async(mInfo: LX.Player.MusicInfo, lyric?: string, isPlayi
 }
 
 export const updateMetaDataImmediately = async(mInfo: LX.Player.MusicInfo, isPlaying = state.isPlaying, lyric?: string) => {
-  state.isPlaying = isPlaying
-  const currentTrack = await getCurrentTrack().catch(() => null)
-  const duration = currentTrack?.musicId === mInfo.id
-    ? await getTrackDuration().catch(() => 0)
-    : 0
-  state.prevDuration = resolveMetadataDuration(duration)
-  await updateMetaInfo(mInfo, lyric, isPlaying)
+  const sync = async(targetIsPlaying: boolean) => {
+    state.isPlaying = targetIsPlaying
+    const currentTrack = await getCurrentTrack().catch(() => null)
+    const duration = currentTrack?.musicId === mInfo.id
+      ? await getTrackDuration().catch(() => 0)
+      : 0
+    state.prevDuration = resolveMetadataDuration(duration)
+    await updateMetaInfo(mInfo, lyric, targetIsPlaying)
+    return state.prevDuration
+  }
+
+  const duration = await sync(isPlaying)
+  if (duration > 0) return
+
+  void (async() => {
+    for (const delay of immediateMetadataRetryDelays) {
+      await wait(delay)
+      if (playerState.musicInfo.id !== mInfo.id) return
+      const nextDuration = await sync(playerState.isPlay)
+      if (nextDuration > 0) return
+    }
+  })()
 }
 
 

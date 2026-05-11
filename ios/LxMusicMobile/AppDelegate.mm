@@ -681,6 +681,13 @@ static NSNumber *LXNowPlayingDefaultPlaybackRateValue(void) {
   return @1;
 }
 
+static MPNowPlayingPlaybackState LXNowPlayingPlaybackStateFromLifecycleState(NSString *state) {
+  if ([state isEqualToString:@"playing"]) return MPNowPlayingPlaybackStatePlaying;
+  if ([state isEqualToString:@"paused"] || [state isEqualToString:@"ready"]) return MPNowPlayingPlaybackStatePaused;
+  if ([state isEqualToString:@"stopped"] || [state isEqualToString:@"idle"]) return MPNowPlayingPlaybackStateStopped;
+  return LXNowPlayingState;
+}
+
 static void LXSetNowPlayingPlaybackState(MPNowPlayingPlaybackState state, NSDictionary *options) {
   LXNowPlayingState = state;
 
@@ -709,7 +716,10 @@ static void LXClearNowPlayingInfo(void) {
 static void LXHandleTrackPlayerLifecycleNotification(NSNotification *notification) {
   NSDictionary *userInfo = [notification.userInfo isKindOfClass:[NSDictionary class]] ? notification.userInfo : @{};
   NSString *event = [userInfo[@"event"] isKindOfClass:[NSString class]] ? userInfo[@"event"] : @"";
+  NSString *stateName = [userInfo[@"state"] isKindOfClass:[NSString class]] ? userInfo[@"state"] : @"";
   NSNumber *position = [userInfo[@"position"] isKindOfClass:[NSNumber class]] ? userInfo[@"position"] : nil;
+  NSNumber *duration = [userInfo[@"duration"] isKindOfClass:[NSNumber class]] ? userInfo[@"duration"] : nil;
+  NSNumber *rate = [userInfo[@"rate"] isKindOfClass:[NSNumber class]] ? userInfo[@"rate"] : nil;
 
   if ([event isEqualToString:@"destroy"] || [event isEqualToString:@"reset"]) {
     LXClearNowPlayingInfo();
@@ -718,11 +728,29 @@ static void LXHandleTrackPlayerLifecycleNotification(NSNotification *notificatio
 
   if (LXNowPlayingInfoCache.count == 0) return;
 
+  if (duration != nil && duration.doubleValue > 0) {
+    LXNowPlayingMutableInfo()[MPMediaItemPropertyPlaybackDuration] = duration;
+  }
+
   if ([event isEqualToString:@"seek"]) {
     LXSetNowPlayingPlaybackState(LXNowPlayingState, @{
       @"elapsedTime": position ?: @0,
       @"playbackRate": LXCurrentNowPlayingRate(),
     });
+    return;
+  }
+
+  if ([event isEqualToString:@"state"]) {
+    MPNowPlayingPlaybackState playbackState = LXNowPlayingPlaybackStateFromLifecycleState(stateName);
+    NSNumber *playbackRate = nil;
+    if (playbackState == MPNowPlayingPlaybackStatePlaying) playbackRate = rate ?: @1;
+    else if (playbackState == MPNowPlayingPlaybackStatePaused || playbackState == MPNowPlayingPlaybackStateStopped) playbackRate = @0;
+    else if (rate != nil) playbackRate = rate;
+
+    NSMutableDictionary *options = [NSMutableDictionary dictionary];
+    if (position != nil) options[@"elapsedTime"] = position;
+    if (playbackRate != nil) options[@"playbackRate"] = playbackRate;
+    LXSetNowPlayingPlaybackState(playbackState, options);
     return;
   }
 }
