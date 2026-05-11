@@ -681,6 +681,12 @@ static NSNumber *LXNowPlayingDefaultPlaybackRateValue(void) {
   return @1;
 }
 
+static NSNumber *LXStreamingFlacPlaybackRate(NSString *state, float currentRate) {
+  if ([state isEqualToString:@"playing"]) return @(MAX(currentRate, 0.5f));
+  if ([state isEqualToString:@"paused"] || [state isEqualToString:@"stopped"] || [state isEqualToString:@"idle"]) return @0;
+  return nil;
+}
+
 static MPNowPlayingPlaybackState LXNowPlayingPlaybackStateFromLifecycleState(NSString *state) {
   if ([state isEqualToString:@"playing"]) return MPNowPlayingPlaybackStatePlaying;
   if ([state isEqualToString:@"paused"] || [state isEqualToString:@"ready"]) return MPNowPlayingPlaybackStatePaused;
@@ -2441,10 +2447,29 @@ RCT_EXPORT_MODULE();
 
 - (void)emitState:(NSString *)state position:(NSNumber *)position duration:(NSNumber *)duration {
   self.currentState = state ?: @"idle";
+  NSNumber *resolvedPosition = position ?: @(self.lastKnownPosition);
+  NSNumber *resolvedDuration = duration ?: @(self.duration);
+  NSNumber *playbackRate = LXStreamingFlacPlaybackRate(self.currentState, self.currentRate);
+
+  if (LXNowPlayingInfoCache.count > 0) {
+    NSMutableDictionary *info = LXNowPlayingMutableInfo();
+    if (resolvedDuration.doubleValue > 0) info[MPMediaItemPropertyPlaybackDuration] = resolvedDuration;
+    info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = resolvedPosition;
+    if (playbackRate != nil) {
+      info[MPNowPlayingInfoPropertyPlaybackRate] = playbackRate;
+      info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = LXNowPlayingDefaultPlaybackRateValue();
+    }
+
+    if ([self.currentState isEqualToString:@"playing"]) LXNowPlayingState = MPNowPlayingPlaybackStatePlaying;
+    else if ([self.currentState isEqualToString:@"paused"]) LXNowPlayingState = MPNowPlayingPlaybackStatePaused;
+    else if ([self.currentState isEqualToString:@"stopped"] || [self.currentState isEqualToString:@"idle"]) LXNowPlayingState = MPNowPlayingPlaybackStateStopped;
+    LXApplyNowPlayingInfo();
+  }
+
   [self emitEventWithType:@"state" body:@{
     @"state": self.currentState,
-    @"position": position ?: @(self.lastKnownPosition),
-    @"duration": duration ?: @(self.duration),
+    @"position": resolvedPosition,
+    @"duration": resolvedDuration,
   }];
 }
 
@@ -3533,6 +3558,12 @@ RCT_REMAP_METHOD(setRate, setStreamRate:(nonnull NSNumber *)rate resolver:(RCTPr
   dispatch_sync(self.renderQueue, ^{
     if (self.timePitchNode != nil) self.timePitchNode.rate = self.currentRate;
   });
+  if (LXNowPlayingInfoCache.count > 0 && [self.currentState isEqualToString:@"playing"]) {
+    LXSetNowPlayingPlaybackState(MPNowPlayingPlaybackStatePlaying, @{
+      @"elapsedTime": @(self.lastKnownPosition),
+      @"playbackRate": @(self.currentRate),
+    });
+  }
   resolve(nil);
 }
 
