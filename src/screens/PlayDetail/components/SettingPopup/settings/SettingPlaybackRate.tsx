@@ -6,7 +6,7 @@ import Text from '@/components/common/Text'
 import { useSettingValue } from '@/store/setting/hook'
 import Slider, { type SliderProps } from '@/components/common/Slider'
 import { updateSetting } from '@/core/common'
-import { syncNowPlayingMetadataImmediately } from '@/core/player/nowPlaying'
+import { syncNowPlayingMetadata } from '@/core/player/nowPlaying'
 import { useI18n } from '@/lang'
 import styles from './style'
 import { setPlaybackRate, updateMetaData } from '@/plugins/player'
@@ -41,7 +41,7 @@ export default () => {
     const rate = value / 100
     void setLyricPlaybackRate(rate)
     if (playerState.playMusicInfo.musicInfo) {
-      void syncNowPlayingMetadataImmediately()
+      syncNowPlayingMetadata(true)
     } else {
       void updateMetaData(playerState.musicInfo, playerState.isPlay, playerState.lastLyric, true) // 更新通知栏的播放速率
     }
@@ -54,7 +54,7 @@ export default () => {
     setSliderSize(100)
     void setPlaybackRate(1).then(() => {
       if (playerState.playMusicInfo.musicInfo) {
-        void syncNowPlayingMetadataImmediately()
+        syncNowPlayingMetadata(true)
       } else {
         void updateMetaData(playerState.musicInfo, playerState.isPlay, playerState.lastLyric, true) // 更新通知栏的播放速率
       }

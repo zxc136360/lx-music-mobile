@@ -1,10 +1,9 @@
-import { getPosition, updateMetaData, updateMetaDataImmediately } from '@/plugins/player'
+import { getPosition, updateMetaData } from '@/plugins/player'
 import playerState from '@/store/player/state'
 import settingState from '@/store/setting/state'
 import { pauseNowPlaying, playNowPlaying, stopNowPlaying } from '@/utils/nativeModules/nowPlaying'
 
 const getElapsedTime = async() => getPosition().catch(() => playerState.progress.nowPlayTime)
-const getPlaybackRate = () => playerState.isPlay ? settingState.setting['player.playbackRate'] : 0
 
 export const syncNowPlayingState = async(type: 'play' | 'pause' | 'stop') => {
   const elapsedTime = type == 'stop' ? 0 : await getElapsedTime()
@@ -31,20 +30,7 @@ export const syncNowPlayingState = async(type: 'play' | 'pause' | 'stop') => {
   }).catch(() => {})
 }
 
-export const syncNowPlayingProgress = async(elapsedTime?: number) => {
-  if (!playerState.playMusicInfo.musicInfo || !playerState.isPlay) return
-  await playNowPlaying({
-    elapsedTime: elapsedTime ?? await getElapsedTime(),
-    playbackRate: getPlaybackRate(),
-  }).catch(() => {})
-}
-
-export const syncNowPlayingMetadata = async(force = false) => {
+export const syncNowPlayingMetadata = (force = false) => {
   if (!playerState.playMusicInfo.musicInfo) return
-  await updateMetaData(playerState.musicInfo, playerState.isPlay, playerState.lastLyric, force).catch(() => {})
-}
-
-export const syncNowPlayingMetadataImmediately = async() => {
-  if (!playerState.playMusicInfo.musicInfo) return
-  await updateMetaDataImmediately(playerState.musicInfo, playerState.isPlay, playerState.lastLyric).catch(() => {})
+  void updateMetaData(playerState.musicInfo, playerState.isPlay, playerState.lastLyric, force)
 }
