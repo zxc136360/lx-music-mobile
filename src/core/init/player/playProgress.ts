@@ -26,6 +26,7 @@ export default () => {
   let updateTimeout: number | null = null
 
   let isScreenOn = true
+  let seekActionId = 0
 
   const isRestoringCurrentMusic = () => {
     const restorePlayInfo = global.lx.restorePlayInfo
@@ -83,8 +84,10 @@ export default () => {
   const setProgress = (time: number, maxTime?: number) => {
     if (!playerState.musicInfo.id) return
     // console.log('setProgress', time, maxTime)
+    const actionId = ++seekActionId
     setNowPlayTime(time)
     void setCurrentTime(time).then((targetPosition) => {
+      if (actionId != seekActionId) return
       if (!playerState.musicInfo.id) return
       if (targetPosition > 0) setNowPlayTime(targetPosition)
       global.app_event.seekLyric(targetPosition > 0 ? targetPosition : time)

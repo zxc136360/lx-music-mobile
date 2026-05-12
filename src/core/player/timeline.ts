@@ -27,3 +27,23 @@ export const getTimelineDuration = (musicInfo: LX.Player.PlayMusic | null | unde
   if (!playerDuration) return intervalDuration
   return Math.abs(playerDuration - intervalDuration) > durationDriftTolerance ? intervalDuration : playerDuration
 }
+
+const shouldMapTimeline = (musicInfo: LX.Player.PlayMusic | null | undefined, playerDuration: number, timelineDuration: number) => {
+  return Platform.OS == 'ios' &&
+    isOnlineMusic(musicInfo) &&
+    playerDuration > 0 &&
+    timelineDuration > 0 &&
+    Math.abs(playerDuration - timelineDuration) > durationDriftTolerance
+}
+
+export const mapTimelineTimeToPlayerTime = (musicInfo: LX.Player.PlayMusic | null | undefined, timelineTime: number, playerDuration: number) => {
+  const timelineDuration = getMusicIntervalDuration(musicInfo)
+  if (!shouldMapTimeline(musicInfo, playerDuration, timelineDuration)) return timelineTime
+  return Math.min(Math.max(timelineTime / timelineDuration * playerDuration, 0), playerDuration)
+}
+
+export const mapPlayerTimeToTimelineTime = (musicInfo: LX.Player.PlayMusic | null | undefined, playerTime: number, playerDuration: number) => {
+  const timelineDuration = getMusicIntervalDuration(musicInfo)
+  if (!shouldMapTimeline(musicInfo, playerDuration, timelineDuration)) return playerTime
+  return Math.min(Math.max(playerTime / playerDuration * timelineDuration, 0), timelineDuration)
+}
