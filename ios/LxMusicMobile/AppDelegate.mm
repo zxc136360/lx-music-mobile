@@ -786,7 +786,10 @@ static void LXSetNowPlayingInfo(NSDictionary *metadata) {
   if (title != nil) info[MPMediaItemPropertyTitle] = title;
   if (artist != nil) info[MPMediaItemPropertyArtist] = artist;
   if (album != nil) info[MPMediaItemPropertyAlbumTitle] = album;
-  if (duration != nil && duration.doubleValue > 0) info[MPMediaItemPropertyPlaybackDuration] = duration;
+  if (duration != nil) {
+    if (duration.doubleValue > 0) info[MPMediaItemPropertyPlaybackDuration] = duration;
+    else [info removeObjectForKey:MPMediaItemPropertyPlaybackDuration];
+  }
   if (elapsedTime != nil) info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsedTime;
   info[MPNowPlayingInfoPropertyPlaybackRate] = playbackRate ?: info[MPNowPlayingInfoPropertyPlaybackRate] ?: LXDefaultNowPlayingRate();
   info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = info[MPNowPlayingInfoPropertyDefaultPlaybackRate] ?: LXNowPlayingDefaultPlaybackRateValue();
@@ -2308,6 +2311,7 @@ RCT_REMAP_METHOD(updateEqualizerConfig, updateEqualizerConfig:(NSDictionary *)co
 @property (nonatomic, strong) AVAudioMixerNode *soundEffectMixerNode;
 @property (nonatomic, strong) AVAudioFormat *outputFormat;
 @property (nonatomic, strong) dispatch_source_t pannerTimer;
+@property (nonatomic, strong) dispatch_source_t nowPlayingRefreshTimer;
 @property (nonatomic, copy) NSString *convolutionAssetKey;
 @property (nonatomic, copy) NSString *currentState;
 @property (nonatomic, copy) NSString *currentURL;
@@ -2425,6 +2429,7 @@ RCT_EXPORT_MODULE();
 }
 
 - (void)dealloc {
+  [self stopNowPlayingRefreshTimer];
   [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
@@ -2449,28 +2454,86 @@ RCT_EXPORT_MODULE();
   });
 }
 
-- (void)emitState:(NSString *)state position:(NSNumber *)position duration:(NSNumber *)duration {
-  self.currentState = state ?: @"idle";
-  NSNumber *resolvedPosition = position ?: @(self.lastKnownPosition);
-  NSNumber *resolvedDuration = duration ?: @(self.duration);
-  NSNumber *playbackRate = LXStreamingFlacPlaybackRate(self.currentState, self.currentRate);
+- (MPNowPlayingPlaybackState)nowPlayingStateForStreamingState:(NSString *)state {
+  if ([state isEqualToString:@"playing"]) return MPNowPlayingPlaybackStatePlaying;
+  if ([state isEqualToString:@"paused"]) return MPNowPlayingPlaybackStatePaused;
+  if ([state isEqualToString:@"stopped"] || [state isEqualToString:@"idle"]) return MPNowPlayingPlaybackStateStopped;
+  return LXNowPlayingState;
+}
 
+- (void)applyStreamingNowPlayingPosition:(NSNumber *)position duration:(NSNumber *)duration {
   if (LXNowPlayingInfoCache.count > 0) {
     NSMutableDictionary *info = LXNowPlayingMutableInfo();
-    if (resolvedDuration.doubleValue > 0) info[MPMediaItemPropertyPlaybackDuration] = resolvedDuration;
+    NSNumber *resolvedPosition = position ?: @(self.lastKnownPosition);
+    NSNumber *resolvedDuration = duration ?: @(self.duration);
+    NSNumber *playbackRate = LXStreamingFlacPlaybackRate(self.currentState, self.currentRate);
+    NSNumber *cachedDuration = [info[MPMediaItemPropertyPlaybackDuration] isKindOfClass:[NSNumber class]]
+      ? info[MPMediaItemPropertyPlaybackDuration]
+      : nil;
+    if (resolvedDuration.doubleValue > 0 && (cachedDuration == nil || cachedDuration.doubleValue <= 0)) {
+      info[MPMediaItemPropertyPlaybackDuration] = resolvedDuration;
+    }
     info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = resolvedPosition;
     if (playbackRate != nil) {
       info[MPNowPlayingInfoPropertyPlaybackRate] = playbackRate;
       info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = LXNowPlayingDefaultPlaybackRateValue();
     }
 
-    if ([self.currentState isEqualToString:@"playing"] ||
-        [self.currentState isEqualToString:@"loading"] ||
-        [self.currentState isEqualToString:@"buffering"]) LXNowPlayingState = MPNowPlayingPlaybackStatePlaying;
-    else if ([self.currentState isEqualToString:@"paused"]) LXNowPlayingState = MPNowPlayingPlaybackStatePaused;
-    else if ([self.currentState isEqualToString:@"stopped"] || [self.currentState isEqualToString:@"idle"]) LXNowPlayingState = MPNowPlayingPlaybackStateStopped;
+    LXNowPlayingState = [self nowPlayingStateForStreamingState:self.currentState];
     LXApplyNowPlayingInfo();
   }
+}
+
+- (void)refreshStreamingNowPlayingPosition {
+  if (self.currentURL.length == 0 || LXNowPlayingInfoCache.count == 0) return;
+
+  __block double position = self.lastKnownPosition;
+  dispatch_sync(self.renderQueue, ^{
+    position = [self currentPlaybackPositionLocked];
+  });
+  [self applyStreamingNowPlayingPosition:@(position) duration:@(self.duration)];
+}
+
+- (BOOL)shouldRefreshNowPlayingTimer {
+  return self.currentURL.length > 0 && [self.currentState isEqualToString:@"playing"];
+}
+
+- (void)stopNowPlayingRefreshTimer {
+  if (self.nowPlayingRefreshTimer == nil) return;
+  dispatch_source_cancel(self.nowPlayingRefreshTimer);
+  self.nowPlayingRefreshTimer = nil;
+}
+
+- (void)updateNowPlayingRefreshTimer {
+  if (![self shouldRefreshNowPlayingTimer]) {
+    [self stopNowPlayingRefreshTimer];
+    return;
+  }
+  if (self.nowPlayingRefreshTimer != nil) return;
+
+  dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+  dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), NSEC_PER_SEC, (uint64_t)(0.15 * NSEC_PER_SEC));
+  __weak StreamingFlacPlayerModule *weakSelf = self;
+  dispatch_source_set_event_handler(timer, ^{
+    StreamingFlacPlayerModule *strongSelf = weakSelf;
+    if (strongSelf == nil) return;
+    if (![strongSelf shouldRefreshNowPlayingTimer]) {
+      [strongSelf stopNowPlayingRefreshTimer];
+      return;
+    }
+    [strongSelf refreshStreamingNowPlayingPosition];
+  });
+  self.nowPlayingRefreshTimer = timer;
+  dispatch_resume(timer);
+}
+
+- (void)emitState:(NSString *)state position:(NSNumber *)position duration:(NSNumber *)duration {
+  self.currentState = state ?: @"idle";
+  NSNumber *resolvedPosition = position ?: @(self.lastKnownPosition);
+  NSNumber *resolvedDuration = duration ?: @(self.duration);
+
+  [self applyStreamingNowPlayingPosition:resolvedPosition duration:resolvedDuration];
+  [self updateNowPlayingRefreshTimer];
 
   [self emitEventWithType:@"state" body:@{
     @"state": self.currentState,
@@ -2582,6 +2645,8 @@ RCT_EXPORT_MODULE();
     self.lastKnownPosition = [self currentPlaybackPositionLocked];
     self.playbackStarted = NO;
     self.currentState = @"stopped";
+    [self applyStreamingNowPlayingPosition:@(self.lastKnownPosition) duration:@(self.duration)];
+    [self updateNowPlayingRefreshTimer];
     [self emitEventWithType:@"ended" body:@{
       @"state": @"stopped",
       @"position": @(self.lastKnownPosition),
@@ -2635,6 +2700,7 @@ RCT_EXPORT_MODULE();
   std::atomic_store_explicit(&_realtimePannerProcessor, std::shared_ptr<LXRealtimeSpatialPannerProcessor>(), std::memory_order_release);
   _lastRealtimeEqualizerEnabled = NO;
   _lastRealtimeEqualizerGains.clear();
+  [self stopNowPlayingRefreshTimer];
 }
 
 - (void)handleSoundEffectConfigChanged:(NSNotification *)notification {
@@ -3168,16 +3234,19 @@ RCT_EXPORT_MODULE();
 
 - (void)handleApplicationWillResignActive:(NSNotification *)notification {
   if (self.currentURL.length == 0) return;
+  [self refreshStreamingNowPlayingPosition];
   [self schedulePlaybackOutputRestoreWithDelays:@[ @0.08, @0.35 ]];
 }
 
 - (void)handleApplicationDidEnterBackground:(NSNotification *)notification {
   if (self.currentURL.length == 0) return;
+  [self refreshStreamingNowPlayingPosition];
   [self schedulePlaybackOutputRestoreWithDelays:@[ @0.15, @0.6 ]];
 }
 
 - (void)handleApplicationDidBecomeActive:(NSNotification *)notification {
   if (self.currentURL.length == 0) return;
+  [self refreshStreamingNowPlayingPosition];
   [self schedulePlaybackOutputRestoreWithDelays:@[ @0.05, @0.2, @0.8 ]];
 }
 
@@ -3332,6 +3401,8 @@ RCT_EXPORT_MODULE();
         self.lastKnownPosition = [self currentPlaybackPositionLocked];
         self.playbackStarted = NO;
         self.currentState = @"stopped";
+        [self applyStreamingNowPlayingPosition:@(self.lastKnownPosition) duration:@(self.duration)];
+        [self updateNowPlayingRefreshTimer];
         [self emitEventWithType:@"ended" body:@{
           @"state": @"stopped",
           @"position": @(self.lastKnownPosition),
