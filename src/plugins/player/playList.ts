@@ -113,15 +113,15 @@ export const playMusic = (musicInfo: LX.Player.PlayMusic, url: string, time: num
 const buildDisplayMetadata = (mInfo: LX.Player.MusicInfo, lyric?: string, isPlaying = state.isPlaying) => {
   const isShowNotificationImage = settingState.setting['player.isShowNotificationImage']
   let artwork = isShowNotificationImage ? mInfo.pic ?? undefined : undefined
+  const isShowBluetoothLyric = settingState.setting['player.isShowBluetoothLyric']
   const fullLyric = getCurrentFullLyric(mInfo.id)
-  const shouldShowBluetoothLyric = settingState.setting['player.isShowBluetoothLyric'] && isPlaying && lyric != null
-  const shouldShowIOSLockscreenLyric = isPlaying && lyric != null
+  const shouldShowBluetoothLyric = isShowBluetoothLyric && isPlaying && lyric != null
   let name: string
   let singer: string
   let album: string | undefined
   if (Platform.OS == 'ios') {
     name = formatNowPlayingTitleLine(mInfo.name ?? 'Unknow', mInfo.singer ?? '')
-    singer = shouldShowIOSLockscreenLyric ? lyric : fullLyric ?? ''
+    singer = shouldShowBluetoothLyric ? lyric : fullLyric ?? ''
     album = ''
   } else if (!shouldShowBluetoothLyric) {
     name = mInfo.name ?? 'Unknow'
@@ -175,8 +175,16 @@ export const updateMetaDataImmediately = async(mInfo: LX.Player.MusicInfo, isPla
     for (const delay of immediateMetadataRetryDelays) {
       await wait(delay)
       if (playerState.musicInfo.id !== mInfo.id) return
-      const nextDuration = await sync(playerState.isPlay)
-      if (nextDuration > 0) return
+      const nextDuration = resolveMetadataDuration(await getCurrentPlaybackDuration(mInfo.id))
+      if (nextDuration > 0) {
+        state.prevDuration = nextDuration
+        // Keep iOS from jumping the already-running lockscreen progress back to zero.
+        await updateCurrentTrackMetadata({
+          ...buildDisplayMetadata(mInfo, lyric, playerState.isPlay),
+          duration: nextDuration,
+        })
+        return
+      }
     }
   })()
 }

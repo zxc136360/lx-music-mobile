@@ -9,6 +9,15 @@ type SetLyricHook = (lines: PlayerLines) => void
 
 const lxLyricTextRxp = /<\d+,\d+>/
 
+const getLineAtTime = (lines: PlayerLines, time: number) => {
+  if (!lines.length) return null
+  if (time <= 0) return lines[0]
+  for (let index = 0; index < lines.length; index++) {
+    if (time <= lines[index].time) return lines[index === 0 ? 0 : index - 1]
+  }
+  return lines.at(-1) ?? null
+}
+
 const lrcTools = {
   isInited: false,
   lrc: null as Lyric | null,
@@ -127,6 +136,13 @@ export const onLyricPlay = (hook: PlayHook) => {
   return () => {
     lrcTools.removePlayHook(hook)
   }
+}
+
+export const getLyricTextByTime = (time: number) => {
+  const player = lrcTools.useLxPlayer ? lrcTools.lxLrc : lrcTools.lrc
+  const tagOffset = Number(player?.tags?.offset) || 0
+  const offset = Number(player?.offset) || 0
+  return getLineAtTime(lrcTools.currentLines, time + tagOffset + offset)?.text ?? ''
 }
 
 // on lyric play hook

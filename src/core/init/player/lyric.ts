@@ -1,4 +1,4 @@
-import { init as initLyricPlayer, toggleTranslation, toggleRoma, play, pause, stop, setLyric, setPlaybackRate, seek, onLyricPlay } from '@/core/lyric'
+import { init as initLyricPlayer, toggleTranslation, toggleRoma, play, pause, stop, setLyric, setPlaybackRate, seek, onLyricPlay, getLyricByTime } from '@/core/lyric'
 import { updateSetting } from '@/core/common'
 import { onDesktopLyricPositionChange, showDesktopLyric, onLyricLinePlay, showRemoteLyric } from '@/core/desktopLyric'
 import playerState from '@/store/player/state'
@@ -6,6 +6,7 @@ import { updateNowPlayingTitles } from '@/plugins/player/utils'
 import { updateDisplayMetaData } from '@/plugins/player'
 import { setLastLyric } from '@/core/player/playInfo'
 import { Platform } from 'react-native'
+import settingState from '@/store/setting/state'
 
 const updateRemoteLyric = async(lrc?: string) => {
   setLastLyric(lrc)
@@ -57,13 +58,31 @@ export default async(setting: LX.AppSetting) => {
   })
   if (Platform.OS == 'ios') {
     let prevLyric: string | undefined
+    const isShowBluetoothLyric = () => settingState.setting['player.isShowBluetoothLyric']
+    const updateIOSLockscreenLyric = (lyric?: string) => {
+      if (!isShowBluetoothLyric() || !playerState.playMusicInfo.musicInfo) return
+      void updateDisplayMetaData(playerState.musicInfo, lyric, playerState.isPlay)
+    }
+    const updateCurrentIOSLockscreenLyric = (time: number, force = false) => {
+      if (!isShowBluetoothLyric()) return
+      const lyric = getLyricByTime(time) || undefined
+      if (!force && lyric === prevLyric) return
+      prevLyric = lyric
+      void updateRemoteLyric(lyric)
+      updateIOSLockscreenLyric(lyric)
+    }
     onLyricPlay((line, text) => {
+      if (!isShowBluetoothLyric()) return
       const lyric = text || undefined
       if (lyric === prevLyric) return
       prevLyric = lyric
       void updateRemoteLyric(lyric)
-      if (playerState.playMusicInfo.musicInfo) {
-        void updateDisplayMetaData(playerState.musicInfo, lyric, playerState.isPlay)
+      updateIOSLockscreenLyric(lyric)
+    })
+    global.app_event.on('seekLyric', updateCurrentIOSLockscreenLyric)
+    global.state_event.on('configUpdated', (keys) => {
+      if (keys.includes('player.isShowBluetoothLyric') && isShowBluetoothLyric()) {
+        updateCurrentIOSLockscreenLyric(playerState.progress.nowPlayTime, true)
       }
     })
   }

@@ -748,6 +748,9 @@ static void LXHandleTrackPlayerLifecycleNotification(NSNotification *notificatio
   }
 
   if ([event isEqualToString:@"state"]) {
+    // JS handles real stops explicitly; TrackPlayer also emits idle while swapping tracks.
+    if ([stateName isEqualToString:@"stopped"] || [stateName isEqualToString:@"idle"]) return;
+
     MPNowPlayingPlaybackState playbackState = LXNowPlayingPlaybackStateFromLifecycleState(stateName);
     NSNumber *playbackRate = nil;
     if (playbackState == MPNowPlayingPlaybackStatePlaying) playbackRate = rate ?: @1;

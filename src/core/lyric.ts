@@ -7,6 +7,7 @@ import {
   toggleTranslation as lrcToggleTranslation,
   toggleRoma as lrcToggleRoma,
   init as lrcInit,
+  getLyricTextByTime,
 } from '@/plugins/lyric'
 import {
   playDesktopLyric,
@@ -78,6 +79,10 @@ export const pause = () => {
 }
 
 export const onLyricPlay = onPluginLyricPlay
+
+export const getLyricByTime = (time: number) => {
+  return getLyricTextByTime(time * 1000)
+}
 
 /**
  * stop lyric

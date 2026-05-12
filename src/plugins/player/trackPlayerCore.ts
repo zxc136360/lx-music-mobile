@@ -201,10 +201,13 @@ export const ensureCurrentTrackMetadata = (metadata: {
   preserveArtist?: boolean
 }) => {
   void (async() => {
-    const targetMetadata = Platform.OS == 'ios' ? formatIOSNowPlayingMetadata(metadata) : metadata
     const delays = Platform.OS == 'ios' ? [0, 160, 420, 900] : [0]
     for (const delay of delays) {
       if (delay) await wait(delay)
+      // Retry metadata for iOS readiness, but do not reset the lockscreen progress.
+      const retryMetadata = { ...metadata }
+      if (delay && Platform.OS == 'ios') delete retryMetadata.elapsedTime
+      const targetMetadata = Platform.OS == 'ios' ? formatIOSNowPlayingMetadata(retryMetadata) : retryMetadata
       await updateCurrentTrackMetadata(targetMetadata)
     }
   })()
