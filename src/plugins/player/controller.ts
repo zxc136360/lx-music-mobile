@@ -3,11 +3,9 @@ import { Platform } from 'react-native'
 import BackgroundTimer from 'react-native-background-timer'
 import { updateMetaDataImmediately } from './playList'
 import { initUnifiedPlayerEngine, onUnifiedPlayerEvent } from './engine'
-import { getNativeFlacTrackId, setNativeFlacRate, setNativeFlacVolume } from './nativeFlac'
 import { getPosition, isEmpty, setStop } from './utils'
 import { exitApp } from '@/core/common'
-import { setMaxplayTime, setNowPlayTime } from '@/core/player/progress'
-import { getTimelineDuration } from '@/core/player/timeline'
+import { setNowPlayTime } from '@/core/player/progress'
 import { playNext, setMusicUrl } from '@/core/player/player'
 import { setStatusText } from '@/core/player/playStatus'
 import { isActive } from '@/utils/tools'
@@ -100,11 +98,8 @@ export const initUnifiedPlayerController = () => {
 
   onUnifiedPlayerEvent(async(event) => {
     if (
-      event.driver == 'trackPlayer' &&
-      (
-        global.lx.gettingUrlId ||
-        (isEmpty(global.lx.playerTrackId) && /\/\/default\/\/restorePlay$/.test(global.lx.playerTrackId))
-      )
+      global.lx.gettingUrlId ||
+      (isEmpty(global.lx.playerTrackId) && /\/\/default\/\/restorePlay$/.test(global.lx.playerTrackId))
     ) return
     switch (event.type) {
       case 'state':
@@ -116,9 +111,6 @@ export const initUnifiedPlayerController = () => {
             break
           case 'buffering':
             if (!global.lx.isPlayedStop && playerState.musicInfo.id) startLoadingTimeout()
-            if (event.driver == 'nativeFlac' && (event.duration ?? 0) > 0 && playerState.musicInfo.id) {
-              setMaxplayTime(getTimelineDuration(playerState.playMusicInfo.musicInfo, event.duration!))
-            }
             global.app_event.pause()
             global.app_event.playerWaiting()
             setStatusText(global.i18n.t('player__buffering'))
@@ -126,15 +118,8 @@ export const initUnifiedPlayerController = () => {
           case 'playing':
             clearLoadingTimeout()
             setStatusText('')
-            if (event.driver == 'nativeFlac') {
-              global.lx.playerTrackId = getNativeFlacTrackId()
-              void setNativeFlacVolume(settingState.setting['player.volume'])
-              void setNativeFlacRate(settingState.setting['player.playbackRate'])
-            } else if (Platform.OS == 'ios') {
+            if (Platform.OS == 'ios') {
               void TrackPlayer.setVolume(settingState.setting['player.volume'])
-            }
-            if (event.driver == 'nativeFlac' && (event.duration ?? 0) > 0 && playerState.musicInfo.id) {
-              setMaxplayTime(getTimelineDuration(playerState.playMusicInfo.musicInfo, event.duration!))
             }
             if (Platform.OS == 'ios' && playerState.musicInfo.id) {
               // Refresh duration/elapsed metadata after playback actually starts so the
@@ -145,14 +130,10 @@ export const initUnifiedPlayerController = () => {
             global.app_event.play()
             break
           case 'paused':
-            if (event.driver == 'nativeFlac' && (event.duration ?? 0) > 0 && playerState.musicInfo.id) {
-              setMaxplayTime(getTimelineDuration(playerState.playMusicInfo.musicInfo, event.duration!))
-            }
           // fallthrough
           case 'stopped':
           case 'idle':
             clearLoadingTimeout()
-            if (event.driver == 'nativeFlac' && event.state != 'paused') global.lx.playerTrackId = ''
             global.app_event.playerPause()
             global.app_event.pause()
             break
@@ -168,10 +149,10 @@ export const initUnifiedPlayerController = () => {
         global.lx.playerTrackId = event.trackId
         if (event.info?.track == null) return
         if (global.lx.isPlayedStop) return handleExitApp('Timeout Exit')
-        if (Platform.OS == 'ios' && event.driver == 'trackPlayer') {
+        if (Platform.OS == 'ios') {
           void TrackPlayer.setVolume(settingState.setting['player.volume'])
         }
-        if (Platform.OS != 'ios' && event.driver == 'trackPlayer' && isEmpty()) {
+        if (Platform.OS != 'ios' && isEmpty()) {
           await TrackPlayer.pause()
           global.app_event.playerPause()
           global.app_event.pause()

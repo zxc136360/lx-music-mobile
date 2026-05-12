@@ -1,11 +1,8 @@
 import TrackPlayer, { State } from 'react-native-track-player'
-import { Platform } from 'react-native'
 import { updateOptions, setVolume, setPlaybackRate, migratePlayerCache, destroy as destroyPlayer, getPosition } from './utils'
-import { getCurrentTrack, restoreTrack, updateDisplayMetaData, updateMetaData, updateMetaDataImmediately } from './playList'
-import { isNativeFlacActive, restoreNativeFlacPlayback, snapshotNativeFlacPlayback } from './nativeFlac'
+import { getCurrentTrack, restoreTrack, updateDisplayMetaData, updateMetaDataImmediately } from './playList'
 import { soundEffectController } from './soundEffect'
 import settingState from '@/store/setting/state'
-import playerState from '@/store/player/state'
 
 // const listenEvent = () => {
 //   TrackPlayer.addEventListener('playback-error', err => {
@@ -65,25 +62,6 @@ let reconfigurePromise = Promise.resolve()
 const reloadConfig = async() => {
   const run = async() => {
     if (global.lx.playerStatus.isIniting || !global.lx.playerStatus.isInitialized) return
-
-    if (Platform.OS == 'ios' && isNativeFlacActive()) {
-      const snapshot = await snapshotNativeFlacPlayback()
-      global.lx.playerStatus.ignoreTrackPlayerLifecycle = true
-      try {
-        await destroyPlayer()
-        await initial(getPlayerConfig())
-        if (snapshot) {
-          await restoreNativeFlacPlayback(snapshot)
-        }
-        if (playerState.musicInfo.id) {
-          const isPlay = snapshot ? !['idle', 'paused', 'stopped'].includes(snapshot.state) : playerState.isPlay
-          void updateMetaData(playerState.musicInfo, isPlay, playerState.lastLyric, true)
-        }
-      } finally {
-        global.lx.playerStatus.ignoreTrackPlayerLifecycle = false
-      }
-      return
-    }
 
     const [track, position, currentState] = await Promise.all([
       getCurrentTrack(),

@@ -1051,7 +1051,7 @@ const patchTrackPlayerLifecycleSync = async() => {
 
   await patchFileByRegex({
     filePath,
-    pattern: /private func postLifecycleEvent\(_ event: String, state: AVPlayerWrapperState\? = nil, position: Double\? = nil, rate: Float\? = nil, extra: \[String: Any\] = \[:\]\) \{[\s\S]*?NotificationCenter\.default\.post\(name: lxTrackPlayerLifecycleNotification, object: self, userInfo: userInfo\)\n    \}/,
+    pattern: /private func postLifecycleEvent\(_ event: String, state: AVPlayerWrapperState\? = nil, position: Double\? = nil, rate: Float\? = nil, extra: \[String: Any\] = \[:\]\) \{[\s\S]*?NotificationCenter\.default\.post\(name: lxTrackPlayerLifecycleNotification, object: self, userInfo: userInfo\)\n {4}\}/,
     replacement: `private func postLifecycleEvent(_ event: String, state: AVPlayerWrapperState? = nil, position: Double? = nil, rate: Float? = nil, extra: [String: Any] = [:]) {
         var userInfo = extra
         let lifecycleState = state ?? player.playerState

@@ -11,8 +11,7 @@ export const nativeEqualizerAdapter: SoundEffectAdapter = {
     presets: true,
     realTimePreview: true,
     playbackPathCoverage: {
-      nativeFlac: 'supported',
-      trackPlayer: 'supported',
+      avPlayer: 'supported',
     },
   },
   isSupported() {

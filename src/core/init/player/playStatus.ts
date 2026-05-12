@@ -1,7 +1,6 @@
 // import { LIST_ID_LOVE } from '@/config/constant'
 
 import { syncNowPlayingMetadata, syncNowPlayingState } from '@/core/player/nowPlaying'
-import { isNativeFlacActive } from '@/plugins/player/nativeFlac'
 import playerState from '@/store/player/state'
 
 export default () => {
@@ -40,16 +39,16 @@ export default () => {
 
   const handlePlay = () => {
     void (async() => {
-      if (!isNativeFlacActive()) await syncNowPlayingState('play')
+      await syncNowPlayingState('play')
       // if (buttons.empty) buttons.empty = false
       if (buttons.play) return
       buttons.play = true
-      if (!isNativeFlacActive()) setButtons()
+      setButtons()
     })()
   }
   const handlePause = () => {
     void (async() => {
-      const skipNowPlayingSync = global.lx.playerStatus.suppressNextPauseNowPlaying || isNativeFlacActive()
+      const skipNowPlayingSync = global.lx.playerStatus.suppressNextPauseNowPlaying
       global.lx.playerStatus.suppressNextPauseNowPlaying = false
       if (!skipNowPlayingSync) await syncNowPlayingState('pause')
       // if (buttons.empty) buttons.empty = false
@@ -81,7 +80,6 @@ export default () => {
     if (!musicId || progress.maxPlayTime <= 0) return
     if (syncedDurationMusicId == musicId) return
     syncedDurationMusicId = musicId
-    if (isNativeFlacActive()) return
     syncNowPlayingMetadata(true)
   }
   const handleConfigUpdated: typeof global.state_event.configUpdated = (keys) => {

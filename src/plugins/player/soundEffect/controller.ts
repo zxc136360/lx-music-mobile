@@ -54,8 +54,7 @@ const createSupportState = (adapters: readonly SoundEffectAdapter[]): SoundEffec
     presets: false,
     realTimePreview: false,
     playbackPathCoverage: {
-      nativeFlac: 'unsupported',
-      trackPlayer: 'unsupported',
+      avPlayer: 'unsupported',
     },
   }
 

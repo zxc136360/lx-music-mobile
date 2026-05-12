@@ -106,7 +106,7 @@ export interface SoundEffectConfig {
 }
 
 export type SoundEffectAdapterId = 'native_ios_sound_effect'
-export type SoundEffectPlaybackPath = 'nativeFlac' | 'trackPlayer'
+export type SoundEffectPlaybackPath = 'avPlayer'
 export type SoundEffectPlaybackCoverage = 'unsupported' | 'partial' | 'supported'
 
 export interface SoundEffectAdapterCapabilities {

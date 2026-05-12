@@ -3,7 +3,6 @@ import { getNextPlayMusicInfo, resetRandomNextMusicInfo } from '@/core/player/pl
 import { checkUrl } from '@/utils/request'
 import playerState from '@/store/player/state'
 import { isCached } from '@/plugins/player/utils'
-import { prefetchNativeFlacPlayback } from '@/plugins/player/nativeFlac'
 
 
 const preloadMusicInfo = {
@@ -17,8 +16,6 @@ const resetPreloadInfo = () => {
   preloadMusicInfo.isLoading = false
 }
 const warmPreloadUrl = async(musicInfo: LX.Player.PlayMusic, url: string, quality?: LX.Quality | null) => {
-  if (await prefetchNativeFlacPlayback(musicInfo, url, quality)) return
-
   const [cached, available] = await Promise.all([
     isCached(url),
     checkUrl(url).then(() => true).catch(() => false),

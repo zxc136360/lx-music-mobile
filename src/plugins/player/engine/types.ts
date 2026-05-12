@@ -6,7 +6,7 @@ export type UnifiedPlaybackState =
   | 'paused'
   | 'stopped'
 
-export type UnifiedDriverName = 'trackPlayer' | 'nativeFlac'
+export type UnifiedDriverName = 'trackPlayer'
 
 export type UnifiedPlayerEvent =
   | {
