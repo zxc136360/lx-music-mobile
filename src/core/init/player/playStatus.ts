@@ -49,14 +49,17 @@ export default () => {
   }
   const handlePause = () => {
     void (async() => {
-      await syncNowPlayingState('pause')
+      const skipNowPlayingSync = global.lx.playerStatus.suppressNextPauseNowPlaying || isNativeFlacActive()
+      global.lx.playerStatus.suppressNextPauseNowPlaying = false
+      if (!skipNowPlayingSync) await syncNowPlayingState('pause')
       // if (buttons.empty) buttons.empty = false
       if (!buttons.play) return
       buttons.play = false
-      setButtons()
+      if (!skipNowPlayingSync) setButtons()
     })()
   }
   const handleStop = () => {
+    global.lx.playerStatus.suppressNextPauseNowPlaying = false
     void syncNowPlayingState('stop')
     buttons.play = false
     syncedDurationMusicId = null

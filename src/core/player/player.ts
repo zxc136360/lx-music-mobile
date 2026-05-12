@@ -271,6 +271,7 @@ const handlePlay = async() => {
 
   if (!musicInfo) return
 
+  global.lx.playerStatus.suppressNextPauseNowPlaying = true
   await setStop()
   global.app_event.pause()
 

@@ -28,6 +28,7 @@ global.lx = {
     isRegisteredService: false,
     isIniting: false,
     ignoreTrackPlayerLifecycle: false,
+    suppressNextPauseNowPlaying: false,
   },
 
   restorePlayInfo: null,
