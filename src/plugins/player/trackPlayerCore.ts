@@ -34,6 +34,7 @@ const formatIOSNowPlayingMetadata = (metadata: {
   elapsedTime?: number
   playbackRate?: number
   lyric?: string
+  preserveArtist?: boolean
 }) => {
   const nowPlayingMetadata: Parameters<typeof updateNowPlayingInfo>[0] = {
     title: formatNowPlayingTitleLine(metadata.title, metadata.artist),
@@ -43,7 +44,11 @@ const formatIOSNowPlayingMetadata = (metadata: {
     elapsedTime: metadata.elapsedTime,
     playbackRate: metadata.playbackRate,
   }
-  if (metadata.lyric !== undefined) nowPlayingMetadata.artist = metadata.lyric
+  if (metadata.lyric !== undefined) {
+    nowPlayingMetadata.artist = metadata.lyric
+  } else if (!metadata.preserveArtist) {
+    nowPlayingMetadata.artist = ''
+  }
   return nowPlayingMetadata
 }
 
@@ -145,6 +150,7 @@ export const updateCurrentTrackMetadata = async(metadata: {
   elapsedTime?: number
   playbackRate?: number
   lyric?: string
+  preserveArtist?: boolean
 }) => {
   const currentTrackIndex = await TrackPlayer.getCurrentTrack().catch(() => null)
   if (currentTrackIndex != null && currentTrackIndex > -1) {
@@ -192,6 +198,7 @@ export const ensureCurrentTrackMetadata = (metadata: {
   elapsedTime?: number
   playbackRate?: number
   lyric?: string
+  preserveArtist?: boolean
 }) => {
   void (async() => {
     const targetMetadata = Platform.OS == 'ios' ? formatIOSNowPlayingMetadata(metadata) : metadata

@@ -54,6 +54,7 @@ export const loadPlaybackResource = async({
         duration: getTimelineDuration(musicInfo, playbackInfo.duration),
         elapsedTime: playbackInfo.position,
         playbackRate: shouldAutoStart ? settingState.setting['player.playbackRate'] : 0,
+        preserveArtist: true,
       })
       return
     } finally {
