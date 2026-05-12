@@ -115,12 +115,13 @@ const buildDisplayMetadata = (mInfo: LX.Player.MusicInfo, lyric?: string, isPlay
   let artwork = isShowNotificationImage ? mInfo.pic ?? undefined : undefined
   const fullLyric = getCurrentFullLyric(mInfo.id)
   const shouldShowBluetoothLyric = settingState.setting['player.isShowBluetoothLyric'] && isPlaying && lyric != null
+  const shouldShowIOSLockscreenLyric = isPlaying && lyric != null
   let name: string
   let singer: string
   let album: string | undefined
   if (Platform.OS == 'ios') {
     name = formatNowPlayingTitleLine(mInfo.name ?? 'Unknow', mInfo.singer ?? '')
-    singer = shouldShowBluetoothLyric ? lyric : fullLyric ?? ''
+    singer = shouldShowIOSLockscreenLyric ? lyric : fullLyric ?? ''
     album = ''
   } else if (!shouldShowBluetoothLyric) {
     name = mInfo.name ?? 'Unknow'
