@@ -13,6 +13,7 @@ import {
   getCurrentFullLyric,
   loadTrackPlayerResource,
 } from '../trackPlayerCore'
+import { getTimelineDuration } from '@/core/player/timeline'
 
 const resolveShouldAutoStart = (currentTrackIndex: number | null) => {
   if (currentTrackIndex != null) return true
@@ -50,7 +51,7 @@ export const loadPlaybackResource = async({
         artist: mInfo.singer ?? 'Unknow',
         album: mInfo.album ?? undefined,
         artwork: typeof mInfo.pic == 'string' ? mInfo.pic : undefined,
-        duration: playbackInfo.duration,
+        duration: getTimelineDuration(musicInfo, playbackInfo.duration),
         elapsedTime: playbackInfo.position,
         lyric: getCurrentFullLyric(mInfo.id),
       })
