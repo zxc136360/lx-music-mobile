@@ -35,15 +35,16 @@ const formatIOSNowPlayingMetadata = (metadata: {
   playbackRate?: number
   lyric?: string
 }) => {
-  return {
+  const nowPlayingMetadata: Parameters<typeof updateNowPlayingInfo>[0] = {
     title: formatNowPlayingTitleLine(metadata.title, metadata.artist),
-    artist: metadata.lyric ?? '',
     album: '',
     artwork: metadata.artwork,
     duration: metadata.duration,
     elapsedTime: metadata.elapsedTime,
     playbackRate: metadata.playbackRate,
   }
+  if (metadata.lyric !== undefined) nowPlayingMetadata.artist = metadata.lyric
+  return nowPlayingMetadata
 }
 
 export const formatMusicInfo = (musicInfo: LX.Player.PlayMusic) => {

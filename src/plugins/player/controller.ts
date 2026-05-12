@@ -136,7 +136,7 @@ export const initUnifiedPlayerController = () => {
             if (event.driver == 'nativeFlac' && (event.duration ?? 0) > 0 && playerState.musicInfo.id) {
               setMaxplayTime(getTimelineDuration(playerState.playMusicInfo.musicInfo, event.duration!))
             }
-            if (Platform.OS == 'ios' && playerState.musicInfo.id) {
+            if (Platform.OS == 'ios' && event.driver != 'nativeFlac' && playerState.musicInfo.id) {
               // Refresh duration/elapsed metadata after playback actually starts so the
               // iOS lockscreen can render an active progress bar.
               void updateMetaDataImmediately(playerState.musicInfo, true, playerState.lastLyric)

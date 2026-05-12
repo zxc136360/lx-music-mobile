@@ -683,6 +683,7 @@ static NSNumber *LXNowPlayingDefaultPlaybackRateValue(void) {
 
 static NSNumber *LXStreamingFlacPlaybackRate(NSString *state, float currentRate) {
   if ([state isEqualToString:@"playing"]) return @(MAX(currentRate, 0.5f));
+  if ([state isEqualToString:@"loading"] || [state isEqualToString:@"buffering"]) return @0;
   if ([state isEqualToString:@"paused"] || [state isEqualToString:@"stopped"] || [state isEqualToString:@"idle"]) return @0;
   return nil;
 }
@@ -2460,7 +2461,9 @@ RCT_EXPORT_MODULE();
       info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = LXNowPlayingDefaultPlaybackRateValue();
     }
 
-    if ([self.currentState isEqualToString:@"playing"]) LXNowPlayingState = MPNowPlayingPlaybackStatePlaying;
+    if ([self.currentState isEqualToString:@"playing"] ||
+        [self.currentState isEqualToString:@"loading"] ||
+        [self.currentState isEqualToString:@"buffering"]) LXNowPlayingState = MPNowPlayingPlaybackStatePlaying;
     else if ([self.currentState isEqualToString:@"paused"]) LXNowPlayingState = MPNowPlayingPlaybackStatePaused;
     else if ([self.currentState isEqualToString:@"stopped"] || [self.currentState isEqualToString:@"idle"]) LXNowPlayingState = MPNowPlayingPlaybackStateStopped;
     LXApplyNowPlayingInfo();

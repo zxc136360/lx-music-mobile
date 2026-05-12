@@ -10,10 +10,10 @@ import {
   clearTracks,
   ensureCurrentTrackMetadata,
   formatMusicInfo,
-  getCurrentFullLyric,
   loadTrackPlayerResource,
 } from '../trackPlayerCore'
 import { getTimelineDuration } from '@/core/player/timeline'
+import settingState from '@/store/setting/state'
 
 const resolveShouldAutoStart = (currentTrackIndex: number | null) => {
   if (currentTrackIndex != null) return true
@@ -53,7 +53,7 @@ export const loadPlaybackResource = async({
         artwork: typeof mInfo.pic == 'string' ? mInfo.pic : undefined,
         duration: getTimelineDuration(musicInfo, playbackInfo.duration),
         elapsedTime: playbackInfo.position,
-        lyric: getCurrentFullLyric(mInfo.id),
+        playbackRate: shouldAutoStart ? settingState.setting['player.playbackRate'] : 0,
       })
       return
     } finally {

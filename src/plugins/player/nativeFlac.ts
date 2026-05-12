@@ -138,7 +138,7 @@ export const resetNativeFlacPlayback = async() => {
   const mode = currentMode
   const trackId = currentTrackId
 
-  if (isStreamingFlacSupported) await resetStreamingFlac().catch(() => {})
+  if (isStreamingFlacSupported && currentTrackId) await resetStreamingFlac().catch(() => {})
 
   if (currentMode == mode && currentTrackId == trackId) clearCurrentContext('idle')
 }
