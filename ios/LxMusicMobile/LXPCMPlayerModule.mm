@@ -31,7 +31,7 @@ extern "C" {
 }
 #undef AVMediaType
 #else
-#define LX_HAS_FFMPEG 0
+#error "PCMPlayerModule requires ffmpeg-kit-ios-full headers. Run `cd ios && bundle exec pod install --repo-update` and ensure the Podfile post_install header preparation ran."
 #endif
 
 static NSString * const LXPCMPlayerEventName = @"pcm-player-event";
@@ -473,8 +473,8 @@ RCT_EXPORT_MODULE();
   BOOL shouldTrimDecodedAudio = position > 0;
 
   void (^finishReject)(NSString *, NSString *) = ^(NSString *code, NSString *message) {
-    [self emitError:message];
     if (promiseSettled) {
+      [self emitError:message];
       return;
     }
     promiseSettled = YES;

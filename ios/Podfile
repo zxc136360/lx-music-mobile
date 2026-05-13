@@ -4,6 +4,7 @@ require Pod::Executable.execute_command('node', ['-p',
     "react-native/scripts/react_native_pods.rb",
     {paths: [process.argv[1]]},
   )', __dir__]).strip
+require 'fileutils'
 
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
@@ -114,6 +115,44 @@ def lx_patch_swift_audio_player_access(installer)
   Pod::UI.puts "Patched SwiftAudio queued player access: #{queued_player_path}".green
 end
 
+def lx_prepare_ffmpeg_headers(installer)
+  sandbox_root = installer.sandbox.root.to_s
+  pod_root = [
+    File.join(sandbox_root, 'ffmpeg-kit-ios-full', 'ffmpeg-kit-ios-full'),
+    File.join(sandbox_root, 'ffmpeg-kit-ios-full'),
+  ].find { |path| Dir.exist?(File.join(path, 'libavformat.xcframework')) }
+  headers_root = File.join(sandbox_root, 'Headers', 'Public', 'ffmpeg-kit-ios-full')
+  libraries = %w[libavcodec libavformat libavutil libswresample]
+
+  unless pod_root
+    Pod::UI.warn 'Skip FFmpeg header preparation: ffmpeg-kit-ios-full pod not found'
+    return
+  end
+
+  expanded_sandbox_root = File.expand_path(sandbox_root)
+  expanded_headers_root = File.expand_path(headers_root)
+  unless expanded_headers_root.start_with?(expanded_sandbox_root + File::SEPARATOR)
+    raise "Refusing to prepare FFmpeg headers outside Pods sandbox: #{expanded_headers_root}"
+  end
+
+  FileUtils.rm_rf(headers_root)
+  libraries.each do |library|
+    header_dir = [
+      File.join(pod_root, "#{library}.xcframework", 'ios-arm64', "#{library}.framework", 'Headers'),
+      File.join(pod_root, "#{library}.xcframework", 'ios-arm64_x86_64-simulator', "#{library}.framework", 'Headers'),
+      File.join(pod_root, "#{library}.xcframework", 'ios-arm64_x86_64-maccatalyst', "#{library}.framework", 'Versions', 'A', 'Headers'),
+    ].find { |path| Dir.exist?(path) }
+
+    raise "FFmpeg headers not found for #{library}" unless header_dir
+
+    target_dir = File.join(headers_root, library)
+    FileUtils.mkdir_p(target_dir)
+    FileUtils.cp_r(Dir.glob(File.join(header_dir, '*')), target_dir)
+  end
+
+  Pod::UI.puts "Prepared FFmpeg public headers: #{headers_root}".green
+end
+
 target 'LxMusicMobile' do
   config = use_native_modules!
 
@@ -145,6 +184,7 @@ target 'LxMusicMobile' do
 
     lx_patch_swift_audio_seek(installer)
     lx_patch_swift_audio_player_access(installer)
+    lx_prepare_ffmpeg_headers(installer)
 
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_configuration|

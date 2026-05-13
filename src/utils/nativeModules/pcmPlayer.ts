@@ -81,12 +81,21 @@ interface NativePCMPlayerModule {
 
 const PCMPlayerModule = NativeModules.PCMPlayerModule as NativePCMPlayerModule | undefined
 
+const getPCMPlayerSupportDetail = () => ({
+  platform: Platform.OS,
+  hasModule: PCMPlayerModule != null,
+  isAvailable: PCMPlayerModule?.isAvailable,
+  hasSetup: typeof PCMPlayerModule?.setup == 'function',
+  hasLoad: typeof PCMPlayerModule?.load == 'function',
+  nativeModules: Object.keys(NativeModules).filter(name => name.includes('PCM') || name.includes('Player')),
+})
+
 export const isPCMPlayerSupported = Platform.OS == 'ios' &&
   PCMPlayerModule?.isAvailable === true &&
   typeof PCMPlayerModule?.setup == 'function' &&
   typeof PCMPlayerModule?.load == 'function'
 
-const unsupportedError = () => new Error(`PCMPlayerModule is not supported on ${Platform.OS}`)
+const unsupportedError = () => new Error(`PCMPlayerModule is not supported: ${JSON.stringify(getPCMPlayerSupportDetail())}`)
 
 const getModule = () => {
   if (!isPCMPlayerSupported || !PCMPlayerModule) throw unsupportedError()
