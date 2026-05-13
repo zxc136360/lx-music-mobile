@@ -6,26 +6,32 @@
 
 #if __has_include(<libavformat/avformat.h>)
 #define LX_HAS_FFMPEG 1
+#define AVMediaType LXFFmpegAVMediaType
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
 #include <libavutil/channel_layout.h>
+#include <libavutil/media_type.h>
 #include <libavutil/opt.h>
 #include <libavutil/samplefmt.h>
 #include <libswresample/swresample.h>
 }
+#undef AVMediaType
 #elif __has_include(<FFmpeg/libavformat/avformat.h>)
 #define LX_HAS_FFMPEG 1
+#define AVMediaType LXFFmpegAVMediaType
 extern "C" {
 #include <FFmpeg/libavcodec/avcodec.h>
 #include <FFmpeg/libavformat/avformat.h>
 #include <FFmpeg/libavutil/avutil.h>
 #include <FFmpeg/libavutil/channel_layout.h>
+#include <FFmpeg/libavutil/media_type.h>
 #include <FFmpeg/libavutil/opt.h>
 #include <FFmpeg/libavutil/samplefmt.h>
 #include <FFmpeg/libswresample/swresample.h>
 }
+#undef AVMediaType
 #else
 #define LX_HAS_FFMPEG 0
 #endif
@@ -51,7 +57,7 @@ static double LXPCMClampDouble(double value, double minValue, double maxValue) {
 @property (nonatomic, strong) AVAudioEngine *engine;
 @property (nonatomic, strong) AVAudioPlayerNode *playerNode;
 @property (nonatomic, strong) AVAudioUnitTimePitch *timePitchNode;
-@property (nonatomic, strong) AVAudioPCMFormat *pcmFormat;
+@property (nonatomic, strong) AVAudioFormat *pcmFormat;
 @property (nonatomic, assign) NSUInteger generation;
 @property (nonatomic, copy) NSString *trackId;
 @property (nonatomic, copy) NSString *source;
@@ -281,10 +287,10 @@ RCT_EXPORT_MODULE();
     [self.playerNode stop];
     [self.engine disconnectNodeOutput:self.playerNode];
     [self.engine disconnectNodeOutput:self.timePitchNode];
-    self.pcmFormat = [[AVAudioPCMFormat alloc] initWithCommonFormat:AVAudioPCMFormatFloat32
-                                                         sampleRate:sampleRate
-                                                           channels:channels
-                                                        interleaved:NO];
+    self.pcmFormat = [[AVAudioFormat alloc] initWithCommonFormat:AVAudioPCMFormatFloat32
+                                                      sampleRate:sampleRate
+                                                        channels:channels
+                                                     interleaved:NO];
     [self.engine connect:self.playerNode to:self.timePitchNode format:self.pcmFormat];
     [self.engine connect:self.timePitchNode to:self.engine.mainMixerNode format:self.pcmFormat];
   }
@@ -387,7 +393,7 @@ RCT_EXPORT_MODULE();
   if (samples <= 0 || channels <= 0) return YES;
   if (![self isGenerationActive:generation]) return NO;
 
-  AVAudioPCMFormat *format = self.pcmFormat;
+  AVAudioFormat *format = self.pcmFormat;
   if (format == nil || format.channelCount != channels || fabs(format.sampleRate - sampleRate) > 0.1) return NO;
 
   AVAudioPCMBuffer *buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:format frameCapacity:(AVAudioFrameCount)samples];
@@ -434,9 +440,17 @@ RCT_EXPORT_MODULE();
   AVChannelLayout outputLayout;
   memset(&sourceLayout, 0, sizeof(sourceLayout));
   memset(&outputLayout, 0, sizeof(outputLayout));
-  BOOL promiseSettled = NO;
+  __block BOOL promiseSettled = NO;
   BOOL emittedTrackChanged = NO;
   BOOL inputEnded = NO;
+  int streamIndex = -1;
+  AVStream *stream = NULL;
+  const AVCodec *codec = NULL;
+  int sampleRate = 44100;
+  int sourceChannels = 2;
+  int outputChannels = 2;
+  double duration = 0;
+  __block NSString *engineErrorMessage = nil;
 
   void (^finishReject)(NSString *, NSString *) = ^(NSString *code, NSString *message) {
     [self emitError:message];
@@ -484,14 +498,14 @@ RCT_EXPORT_MODULE();
     goto cleanup;
   }
 
-  int streamIndex = av_find_best_stream(formatContext, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0);
+  streamIndex = av_find_best_stream(formatContext, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0);
   if (streamIndex < 0) {
     finishReject(@"audio_stream_not_found", @"No audio stream found");
     goto cleanup;
   }
 
-  AVStream *stream = formatContext->streams[streamIndex];
-  const AVCodec *codec = avcodec_find_decoder(stream->codecpar->codec_id);
+  stream = formatContext->streams[streamIndex];
+  codec = avcodec_find_decoder(stream->codecpar->codec_id);
   if (codec == NULL) {
     finishReject(@"decoder_not_found", @"No FFmpeg decoder found for audio stream");
     goto cleanup;
@@ -508,16 +522,15 @@ RCT_EXPORT_MODULE();
     goto cleanup;
   }
 
-  int sampleRate = codecContext->sample_rate > 0 ? codecContext->sample_rate : 44100;
-  int sourceChannels = codecContext->ch_layout.nb_channels > 0 ? codecContext->ch_layout.nb_channels : 2;
-  int outputChannels = MIN(MAX(sourceChannels, 1), 2);
+  sampleRate = codecContext->sample_rate > 0 ? codecContext->sample_rate : 44100;
+  sourceChannels = codecContext->ch_layout.nb_channels > 0 ? codecContext->ch_layout.nb_channels : 2;
+  outputChannels = MIN(MAX(sourceChannels, 1), 2);
   if (codecContext->ch_layout.nb_channels > 0 && av_channel_layout_check(&codecContext->ch_layout)) {
     av_channel_layout_copy(&sourceLayout, &codecContext->ch_layout);
   } else {
     av_channel_layout_default(&sourceLayout, sourceChannels);
   }
   av_channel_layout_default(&outputLayout, outputChannels);
-  double duration = 0;
   if (formatContext->duration > 0) duration = (double)formatContext->duration / AV_TIME_BASE;
   else if (stream->duration > 0) duration = (double)stream->duration * av_q2d(stream->time_base);
 
@@ -535,7 +548,6 @@ RCT_EXPORT_MODULE();
     goto cleanup;
   }
 
-  __block NSString *engineErrorMessage = nil;
   dispatch_sync(dispatch_get_main_queue(), ^{
     NSError *engineError = nil;
     if (![self ensureEngineWithSampleRate:sampleRate channels:(AVAudioChannelCount)outputChannels error:&engineError]) {
