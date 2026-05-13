@@ -126,7 +126,7 @@ public class RNTrackPlayer: RCTEventEmitter {
     }
 `,
         to: `    @objc(seekTo:resolver:rejecter:)
-    public func seek(to time: Double, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+    public func seek(to time: Double, resolve: @escaping RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         print("Seeking to \\(time) seconds")
         if let pendingResolve = pendingSeekResolve {
             pendingSeekResolve = nil
@@ -1179,9 +1179,9 @@ const patchTrackPlayerLifecycleSync = async() => {
     replacement: `$1
     func handleAudioPlayerSeek(data: AudioPlayer.SeekEventData) {
         let currentTime = player.currentTime
-        let position = currentTime.isFinite ? currentTime : data.seconds
+        let position = currentTime.isFinite ? currentTime : Double(data.seconds)
         postLifecycleEvent("seek", position: position, extra: [
-            "targetPosition": pendingSeekTarget ?? data.seconds,
+            "targetPosition": pendingSeekTarget ?? Double(data.seconds),
             "didFinish": data.didFinish,
         ])
 
@@ -1192,6 +1192,31 @@ const patchTrackPlayerLifecycleSync = async() => {
     }
 $2`,
     skipIfIncludes: 'func handleAudioPlayerSeek(data: AudioPlayer.SeekEventData)',
+  })
+}
+
+const patchTrackPlayerSwiftCompatibility = async() => {
+  const filePath = 'node_modules/react-native-track-player/ios/RNTrackPlayer/RNTrackPlayer.swift'
+
+  await patchFileByRegex({
+    filePath,
+    pattern: /public func seek\(to time: Double, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock\) \{/,
+    replacement: 'public func seek(to time: Double, resolve: @escaping RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {',
+    skipIfIncludes: 'resolve: @escaping RCTPromiseResolveBlock',
+  })
+
+  await patchFileByRegex({
+    filePath,
+    pattern: /let position = currentTime\.isFinite \? currentTime : data\.seconds/,
+    replacement: 'let position = currentTime.isFinite ? currentTime : Double(data.seconds)',
+    skipIfIncludes: 'let position = currentTime.isFinite ? currentTime : Double(data.seconds)',
+  })
+
+  await patchFileByRegex({
+    filePath,
+    pattern: /"targetPosition": pendingSeekTarget \?\? data\.seconds,/,
+    replacement: '"targetPosition": pendingSeekTarget ?? Double(data.seconds),',
+    skipIfIncludes: '"targetPosition": pendingSeekTarget ?? Double(data.seconds),',
   })
 }
 
@@ -1217,6 +1242,11 @@ $2`,
     await patchTrackPlayerLifecycleSync()
   } catch (err) {
     console.error(`Patch TrackPlayer lifecycle sync failed: ${err.message}`)
+  }
+  try {
+    await patchTrackPlayerSwiftCompatibility()
+  } catch (err) {
+    console.error(`Patch TrackPlayer Swift compatibility failed: ${err.message}`)
   }
   try {
     await ensureFileContent({
