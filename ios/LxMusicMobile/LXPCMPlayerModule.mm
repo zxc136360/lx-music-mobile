@@ -12,7 +12,6 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
 #include <libavutil/channel_layout.h>
-#include <libavutil/media_type.h>
 #include <libavutil/opt.h>
 #include <libavutil/samplefmt.h>
 #include <libswresample/swresample.h>
@@ -26,7 +25,6 @@ extern "C" {
 #include <FFmpeg/libavformat/avformat.h>
 #include <FFmpeg/libavutil/avutil.h>
 #include <FFmpeg/libavutil/channel_layout.h>
-#include <FFmpeg/libavutil/media_type.h>
 #include <FFmpeg/libavutil/opt.h>
 #include <FFmpeg/libavutil/samplefmt.h>
 #include <FFmpeg/libswresample/swresample.h>
