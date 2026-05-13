@@ -299,6 +299,23 @@ RCT_EXPORT_MODULE();
   return YES;
 }
 
+- (NSString *)ensureEngineErrorMessageWithSampleRate:(double)sampleRate channels:(AVAudioChannelCount)channels {
+  __block NSString *errorMessage = nil;
+  void (^ensureEngine)(void) = ^{
+    NSError *engineError = nil;
+    if (![self ensureEngineWithSampleRate:sampleRate channels:channels error:&engineError]) {
+      errorMessage = engineError.localizedDescription ?: @"Failed to start PCM output engine";
+    }
+  };
+
+  if ([NSThread isMainThread]) {
+    ensureEngine();
+  } else {
+    dispatch_sync(dispatch_get_main_queue(), ensureEngine);
+  }
+  return errorMessage;
+}
+
 - (void)resetPlaybackStateForTrack:(NSString *)trackId source:(NSString *)source userAgent:(NSString *)userAgent position:(double)position generation:(NSUInteger *)generation {
   @synchronized (self) {
     self.generation += 1;
@@ -448,7 +465,7 @@ RCT_EXPORT_MODULE();
   int sourceChannels = 2;
   int outputChannels = 2;
   double duration = 0;
-  __block NSString *engineErrorMessage = nil;
+  NSString *engineErrorMessage = nil;
 
   void (^finishReject)(NSString *, NSString *) = ^(NSString *code, NSString *message) {
     [self emitError:message];
@@ -546,12 +563,7 @@ RCT_EXPORT_MODULE();
     goto cleanup;
   }
 
-  dispatch_sync(dispatch_get_main_queue(), ^{
-    NSError *engineError = nil;
-    if (![self ensureEngineWithSampleRate:sampleRate channels:(AVAudioChannelCount)outputChannels error:&engineError]) {
-      engineErrorMessage = engineError.localizedDescription ?: @"Failed to start PCM output engine";
-    }
-  });
+  engineErrorMessage = [self ensureEngineErrorMessageWithSampleRate:sampleRate channels:(AVAudioChannelCount)outputChannels];
   if (engineErrorMessage.length) {
     finishReject(@"engine_start_failed", engineErrorMessage);
     goto cleanup;
