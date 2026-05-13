@@ -1,16 +1,11 @@
-import TrackPlayer, { Capability, RepeatMode, State } from 'react-native-track-player'
 import BackgroundTimer from 'react-native-background-timer'
 import { playMusic as handlePlayMusic } from './playList'
-import { destroyTrackPlayerCore } from './trackPlayerCore'
 import { existsFile, moveFile, privateStorageDirectoryPath, temporaryDirectoryPath } from '@/utils/fs'
 import { toast } from '@/utils/tools'
-import { NativeModules, Platform } from 'react-native'
-import { getAccuratePosition, seekToTime } from './seek'
+import { getAccuratePosition, getPlayerDuration, seekToTime } from './seek'
 import { getUnifiedPlaybackState, onUnifiedPlayerEvent } from './engine'
-import { shouldUsePCMPlayerEngine } from './engine/platform'
 import {
   destroyPCMPlayerCore,
-  getPCMPlayerDuration,
   pausePCMPlayer,
   playPCMPlayer,
   setPCMPlayerRate,
@@ -21,22 +16,6 @@ import {
 
 
 export { useBufferProgress } from './hook'
-
-const NativeTrackPlayerModule = NativeModules.TrackPlayerModule as {
-  updateNowPlayingMetadata?: (metadata: {
-    title?: string
-    artist?: string
-    album?: string
-    artwork?: string
-    duration?: number
-    elapsedTime?: number
-    isLiveStream?: boolean
-  }) => Promise<void>
-  getPosition?: () => Promise<number>
-  getDuration?: () => Promise<number>
-  getCacheSize?: () => Promise<number>
-  clearCache?: () => Promise<void>
-}
 
 const emptyIdRxp = /\/\/default$/
 const tempIdRxp = /\/\/default$|\/\/default\/\/restorePlay$/
@@ -190,46 +169,23 @@ export const setResource = (musicInfo: LX.Player.PlayMusic, url: string, duratio
   playMusic(musicInfo, url, duration ?? 0, quality)
 }
 
-export const setPlay = async() => {
-  if (shouldUsePCMPlayerEngine()) return playPCMPlayer()
-  return TrackPlayer.play()
-}
+export const setPlay = async() => playPCMPlayer()
 export const getPosition = async() => {
   return getAccuratePosition()
 }
-export const getDuration = async() => {
-  if (shouldUsePCMPlayerEngine()) return getPCMPlayerDuration()
-  if (Platform.OS == 'ios' && typeof NativeTrackPlayerModule?.getDuration == 'function') {
-    return NativeTrackPlayerModule.getDuration()
-  }
-  return TrackPlayer.getDuration()
-}
+export const getDuration = async() => getPlayerDuration()
 export const setStop = async() => {
-  if (shouldUsePCMPlayerEngine()) {
-    await stopPCMPlayerCore()
-    return
-  }
-  await TrackPlayer.stop()
-  if (Platform.OS != 'ios' && !isEmpty()) await TrackPlayer.skipToNext()
+  await stopPCMPlayerCore()
 }
-export const setLoop = async(loop: boolean) => TrackPlayer.setRepeatMode(loop ? RepeatMode.Off : RepeatMode.Track)
+export const setLoop = async(_loop: boolean) => {}
 
-export const setPause = async() => {
-  if (shouldUsePCMPlayerEngine()) return pausePCMPlayer()
-  return TrackPlayer.pause()
-}
+export const setPause = async() => pausePCMPlayer()
 // export const skipToNext = () => TrackPlayer.skipToNext()
 export const setCurrentTime = async(time: number) => {
   return seekToTime(time)
 }
-export const setVolume = async(num: number) => {
-  if (shouldUsePCMPlayerEngine()) return setPCMPlayerVolume(num)
-  return TrackPlayer.setVolume(num)
-}
-export const setPlaybackRate = async(num: number) => {
-  if (shouldUsePCMPlayerEngine()) return setPCMPlayerRate(num)
-  return TrackPlayer.setRate(num)
-}
+export const setVolume = async(num: number) => setPCMPlayerVolume(num)
+export const setPlaybackRate = async(num: number) => setPCMPlayerRate(num)
 export interface NowPlayingTitles {
   title?: string
   artist?: string
@@ -238,37 +194,14 @@ export interface NowPlayingTitles {
 }
 export const updateNowPlayingTitles = async(titles: NowPlayingTitles) => {
   console.log('set playing titles', titles)
-  if (Platform.OS == 'ios') return Promise.resolve()
-  const updateTitles = TrackPlayer.updateNowPlayingTitles as unknown as {
-    (titles: NowPlayingTitles): Promise<void>
-    (duration: number, title: string, artist: string, album: string): Promise<void>
-  }
-  if (TrackPlayer.updateNowPlayingTitles.length <= 1) return updateTitles(titles)
-  return updateTitles(0, titles.title ?? titles.lyric ?? '', titles.artist ?? '', titles.album ?? '')
+  return Promise.resolve()
 }
 
 export const resetPlay = async() => Promise.all([setPause(), setCurrentTime(0)])
 
-export const isCached = async(url: string) => {
-  if (shouldUsePCMPlayerEngine()) return false
-  return TrackPlayer.isCached(url)
-}
-export const getCacheSize = async() => {
-  if (shouldUsePCMPlayerEngine()) return 0
-  if (Platform.OS == 'ios') {
-    if (typeof NativeTrackPlayerModule?.getCacheSize != 'function') return 0
-    return NativeTrackPlayerModule.getCacheSize()
-  }
-  return TrackPlayer.getCacheSize()
-}
-export const clearCache = async() => {
-  if (shouldUsePCMPlayerEngine()) return
-  if (Platform.OS == 'ios') {
-    if (typeof NativeTrackPlayerModule?.clearCache != 'function') return
-    return NativeTrackPlayerModule.clearCache()
-  }
-  return TrackPlayer.clearCache()
-}
+export const isCached = async(_url: string) => false
+export const getCacheSize = async() => 0
+export const clearCache = async() => {}
 export const migratePlayerCache = async() => {
   const newCachePath = temporaryDirectoryPath + '/TrackPlayer'
   if (await existsFile(newCachePath)) return
@@ -286,8 +219,7 @@ export const migratePlayerCache = async() => {
 export const destroy = async() => {
   if (global.lx.playerStatus.isIniting || !global.lx.playerStatus.isInitialized) return
   try {
-    if (shouldUsePCMPlayerEngine()) await destroyPCMPlayerCore()
-    else await destroyTrackPlayerCore()
+    await destroyPCMPlayerCore()
   } finally {
     global.lx.playerStatus.isInitialized = false
   }
@@ -329,58 +261,29 @@ export const onStateChange = async(listener: (state: PlayStatus) => void) => {
         break
     }
   })
-  if (shouldUsePCMPlayerEngine()) {
-    void getUnifiedPlaybackState().then((state) => {
-      switch (state) {
-        case 'loading':
-          listener('Connecting')
-          break
-        case 'buffering':
-          listener('Buffering')
-          break
-        case 'playing':
-          listener('Playing')
-          break
-        case 'paused':
-          listener('Paused')
-          break
-        case 'stopped':
-          listener('Stopped')
-          break
-        case 'idle':
-        default:
-          listener('None')
-          break
-      }
-    }).catch(() => {})
-  } else {
-    void TrackPlayer.getState().then((state) => {
-      switch (state) {
-        case State.Ready:
-          listener('Ready')
-          break
-        case State.Playing:
-          listener('Playing')
-          break
-        case State.Paused:
-          listener('Paused')
-          break
-        case State.Stopped:
-          listener('Stopped')
-          break
-        case State.Buffering:
-          listener('Buffering')
-          break
-        case State.Connecting:
-          listener('Connecting')
-          break
-        case State.None:
-        default:
-          listener('None')
-          break
-      }
-    }).catch(() => {})
-  }
+  void getUnifiedPlaybackState().then((state) => {
+    switch (state) {
+      case 'loading':
+        listener('Connecting')
+        break
+      case 'buffering':
+        listener('Buffering')
+        break
+      case 'playing':
+        listener('Playing')
+        break
+      case 'paused':
+        listener('Paused')
+        break
+      case 'stopped':
+        listener('Stopped')
+        break
+      case 'idle':
+      default:
+        listener('None')
+        break
+    }
+  }).catch(() => {})
 
   return () => {
     removeUnifiedListener()
@@ -394,61 +297,7 @@ export const onStateChange = async(listener: (state: PlayStatus) => void) => {
  */
 // export const playState = callback => TrackPlayer.addEventListener('playback-state', callback)
 
-const defaultUpdateOptions = Platform.OS == 'ios'
-  ? {
-      capabilities: [
-        Capability.Play,
-        Capability.Pause,
-        Capability.SeekTo,
-        Capability.SkipToNext,
-        Capability.SkipToPrevious,
-      ],
-    }
-  : {
-      // Whether the player should stop running when the app is closed on Android
-      // stopWithApp: true,
-
-      // An array of media controls capabilities
-      // Can contain CAPABILITY_PLAY, CAPABILITY_PAUSE, CAPABILITY_STOP, CAPABILITY_SEEK_TO,
-      // CAPABILITY_SKIP_TO_NEXT, CAPABILITY_SKIP_TO_PREVIOUS, CAPABILITY_SET_RATING
-      capabilities: [
-        Capability.Play,
-        Capability.Pause,
-        Capability.Stop,
-        Capability.SeekTo,
-        Capability.SkipToNext,
-        Capability.SkipToPrevious,
-      ],
-
-      notificationCapabilities: [
-        Capability.Play,
-        Capability.Pause,
-        Capability.Stop,
-        Capability.SkipToNext,
-        Capability.SkipToPrevious,
-      ],
-
-      // // An array of capabilities that will show up when the notification is in the compact form on Android
-      compactCapabilities: [
-        Capability.Play,
-        Capability.Pause,
-        Capability.Stop,
-        Capability.SkipToNext,
-      ],
-
-      // Icons for the notification on Android (if you don't like the default ones)
-      // playIcon: require('./play-icon.png'),
-      // pauseIcon: require('./pause-icon.png'),
-      // stopIcon: require('./stop-icon.png'),
-      // previousIcon: require('./previous-icon.png'),
-      // nextIcon: require('./next-icon.png'),
-      // icon: notificationIcon, // The notification icon
-    }
-
-export const updateOptions = async(options = defaultUpdateOptions) => {
-  if (shouldUsePCMPlayerEngine()) return
-  return TrackPlayer.updateOptions(options)
-}
+export const updateOptions = async(_options = {}) => {}
 
 // export const setMaxCache = async size => {
 //   // const currentTrack = await TrackPlayer.getCurrentTrack()

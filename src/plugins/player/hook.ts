@@ -1,36 +1,45 @@
 import { useEffect, useState, useRef } from 'react'
-import TrackPlayer, { State, Event } from 'react-native-track-player'
 import { getUnifiedPlaybackState, onUnifiedPlayerEvent } from './engine'
-import { shouldUsePCMPlayerEngine } from './engine/platform'
 import { getPCMPlayerBufferedPosition } from './pcmPlayerCore'
 import { getDuration, getPosition } from './utils'
 
+const PlaybackState = {
+  None: 'None',
+  Connecting: 'Connecting',
+  Buffering: 'Buffering',
+  Playing: 'Playing',
+  Paused: 'Paused',
+  Stopped: 'Stopped',
+} as const
+
+type PlaybackStateValue = typeof PlaybackState[keyof typeof PlaybackState]
+
 /** Get current playback state and subsequent updatates  */
 export const usePlaybackState = () => {
-  const [state, setState] = useState(State.None)
+  const [state, setState] = useState<PlaybackStateValue>(PlaybackState.None)
 
   useEffect(() => {
     async function setPlayerState() {
       const unifiedState = await getUnifiedPlaybackState()
       switch (unifiedState) {
         case 'loading':
-          setState(State.Connecting)
+          setState(PlaybackState.Connecting)
           break
         case 'buffering':
-          setState(State.Buffering)
+          setState(PlaybackState.Buffering)
           break
         case 'playing':
-          setState(State.Playing)
+          setState(PlaybackState.Playing)
           break
         case 'paused':
-          setState(State.Paused)
+          setState(PlaybackState.Paused)
           break
         case 'stopped':
-          setState(State.Stopped)
+          setState(PlaybackState.Stopped)
           break
         case 'idle':
         default:
-          setState(State.None)
+          setState(PlaybackState.None)
           break
       }
     }
@@ -39,33 +48,33 @@ export const usePlaybackState = () => {
 
     const removeUnifiedListener = onUnifiedPlayerEvent((event) => {
       if (event.type == 'ended') {
-        setState(State.Stopped)
+        setState(PlaybackState.Stopped)
         return
       }
       if (event.type == 'error') {
-        setState(State.Paused)
+        setState(PlaybackState.Paused)
         return
       }
       if (event.type != 'state') return
       switch (event.state) {
         case 'loading':
-          setState(State.Connecting)
+          setState(PlaybackState.Connecting)
           break
         case 'buffering':
-          setState(State.Buffering)
+          setState(PlaybackState.Buffering)
           break
         case 'playing':
-          setState(State.Playing)
+          setState(PlaybackState.Playing)
           break
         case 'paused':
-          setState(State.Paused)
+          setState(PlaybackState.Paused)
           break
         case 'stopped':
-          setState(State.Stopped)
+          setState(PlaybackState.Stopped)
           break
         case 'idle':
         default:
-          setState(State.None)
+          setState(PlaybackState.None)
           break
       }
     })
@@ -114,8 +123,8 @@ export const usePlaybackState = () => {
 // }
 
 const pollTrackPlayerStates = [
-  State.Playing,
-  State.Buffering,
+  PlaybackState.Playing,
+  PlaybackState.Buffering,
 ] as const
 /**
  * Poll for track progress for the given interval (in miliseconds)
@@ -134,17 +143,11 @@ export function useProgress(updateInterval: number) {
   }, [])
 
   const getProgress = async() => {
-    const progressInfoPromise = shouldUsePCMPlayerEngine()
-      ? Promise.all([
-        getPosition(),
-        getDuration(),
-        getPCMPlayerBufferedPosition(),
-      ])
-      : Promise.all([
-        TrackPlayer.getPosition(),
-        TrackPlayer.getDuration(),
-        TrackPlayer.getBufferedPosition(),
-      ])
+    const progressInfoPromise = Promise.all([
+      getPosition(),
+      getDuration(),
+      getPCMPlayerBufferedPosition(),
+    ])
     const [position, duration, buffered] = await progressInfoPromise
     // After the asynchronous code is executed, if the component has been uninstalled, do not update the status
     if (isUnmountedRef.current) return
@@ -201,14 +204,11 @@ export function useBufferProgress() {
       setProgress(duration ? (buffered / duration) : 0)
     }
 
-    const getBufferedPosition = async() => {
-      if (shouldUsePCMPlayerEngine()) return getPCMPlayerBufferedPosition()
-      return TrackPlayer.getBufferedPosition()
-    }
+    const getBufferedPosition = async() => getPCMPlayerBufferedPosition()
 
-    const handleState = (state: State) => {
+    const handleState = (state: PlaybackStateValue) => {
       switch (state) {
-        case State.None:
+        case PlaybackState.None:
           // console.log('state', 'None')
           setProgress(0)
           break
@@ -224,7 +224,7 @@ export function useBufferProgress() {
         // case State.Playing:
         //   console.log('state', 'Playing')
         //   break
-        case State.Buffering:
+        case PlaybackState.Buffering:
           // console.log('state', 'Buffering')
           clearItv()
           duration = 0
@@ -240,25 +240,21 @@ export function useBufferProgress() {
       }
     }
 
-    const sub = shouldUsePCMPlayerEngine()
-      ? {
-          remove: onUnifiedPlayerEvent(event => {
-            if (event.type == 'state') {
-              switch (event.state) {
-                case 'idle':
-                  handleState(State.None)
-                  break
-                case 'buffering':
-                case 'loading':
-                  handleState(State.Buffering)
-                  break
-              }
-            }
-          }),
+    const sub = {
+      remove: onUnifiedPlayerEvent(event => {
+        if (event.type == 'state') {
+          switch (event.state) {
+            case 'idle':
+              handleState(PlaybackState.None)
+              break
+            case 'buffering':
+            case 'loading':
+              handleState(PlaybackState.Buffering)
+              break
+          }
         }
-      : TrackPlayer.addEventListener(Event.PlaybackState, data => {
-        handleState(data.state as State)
-      })
+      }),
+    }
 
     void updateBuffer()
     void getUnifiedPlaybackState().then((state) => {

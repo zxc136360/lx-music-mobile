@@ -6,7 +6,7 @@ export type UnifiedPlaybackState =
   | 'paused'
   | 'stopped'
 
-export type UnifiedDriverName = 'trackPlayer' | 'pcmPlayer'
+export type UnifiedDriverName = 'pcmPlayer'
 
 export type UnifiedPlayerEvent =
   | {

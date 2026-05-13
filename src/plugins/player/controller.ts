@@ -2,9 +2,8 @@ import { Platform } from 'react-native'
 import BackgroundTimer from 'react-native-background-timer'
 import { updateMetaDataImmediately } from './playList'
 import { initUnifiedPlayerEngine, onUnifiedPlayerEvent } from './engine'
-import { shouldUsePCMPlayerEngine } from './engine/platform'
 import { clearPCMPlaybackTrack } from './pcmPlayerCore'
-import { getPosition, isEmpty, setPause, setStop, setVolume } from './utils'
+import { getPosition, isEmpty, setStop, setVolume } from './utils'
 import { exitApp } from '@/core/common'
 import { setNowPlayTime } from '@/core/player/progress'
 import { playNext, setMusicUrl } from '@/core/player/player'
@@ -43,7 +42,8 @@ export const initUnifiedPlayerController = () => {
         void playNext(true)
       } else {
         prevTimeoutId = playerState.musicInfo.id
-        if (playerState.playMusicInfo.musicInfo) setMusicUrl(playerState.playMusicInfo.musicInfo, true)
+        const currentMusicInfo = playerState.playMusicInfo.musicInfo
+        if (currentMusicInfo) setMusicUrl(currentMusicInfo, true)
       }
     }, 25000)
   }
@@ -83,7 +83,7 @@ export const initUnifiedPlayerController = () => {
       }).finally(() => {
         if (playerState.playMusicInfo.musicInfo !== musicInfo) return
         retryNum++
-        setMusicUrl(playerState.playMusicInfo.musicInfo, true)
+        setMusicUrl(musicInfo, true)
         setStatusText(global.i18n.t('player__refresh_url'))
       })
       return
@@ -150,22 +150,10 @@ export const initUnifiedPlayerController = () => {
         global.lx.playerTrackId = event.trackId
         if (event.info?.track == null) return
         if (global.lx.isPlayedStop) return handleExitApp('Timeout Exit')
-        if (Platform.OS == 'ios') {
-          void setVolume(settingState.setting['player.volume'])
-        }
-        if (Platform.OS != 'ios' && isEmpty()) {
-          await setPause()
-          global.app_event.playerPause()
-          global.app_event.pause()
-          global.app_event.playerEnded()
-          global.app_event.playerEmptied()
-          clearDelayNextTimeout()
-          clearLoadingTimeout()
-        }
+        void setVolume(settingState.setting['player.volume'])
         break
       case 'ended':
-        if (shouldUsePCMPlayerEngine()) clearPCMPlaybackTrack()
-        else global.lx.playerTrackId = ''
+        clearPCMPlaybackTrack()
         global.app_event.playerPause()
         global.app_event.pause()
         global.app_event.playerEnded()

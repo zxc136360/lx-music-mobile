@@ -7,15 +7,11 @@ import { getTimelineDuration } from '@/core/player/timeline'
 import {
   formatNowPlayingTitleLine,
   getCurrentFullLyric,
-  getCurrentTrack as getCurrentTrackPlayerTrack,
   getTrackDuration,
-  initTrackInfo as handleInitTrackInfo,
-  restoreTrack as restoreTrackPlayerTrack,
   trackPlayerState as state,
   updateCurrentTrackMetadata,
   updateNowPlayingDisplayMetadata,
 } from './trackPlayerCore'
-import { shouldUsePCMPlayerEngine } from './engine/platform'
 import { loadPlaybackResource } from './engine/resourceLoader'
 import {
   getCurrentPCMTrack,
@@ -25,14 +21,10 @@ import {
 
 export { state }
 
-export const getCurrentTrack = async() => {
-  if (shouldUsePCMPlayerEngine()) return getCurrentPCMTrack()
-  return getCurrentTrackPlayerTrack()
-}
+export const getCurrentTrack = async() => getCurrentPCMTrack()
 
 export const restoreTrack = async(track: LX.Player.Track, position: number, isPlaying: boolean) => {
-  if (shouldUsePCMPlayerEngine()) return restorePCMTrack(track, position, isPlaying)
-  return restoreTrackPlayerTrack(track, position, isPlaying)
+  return restorePCMTrack(track, position, isPlaying)
 }
 
 const wait = async(ms: number) => new Promise(resolve => setTimeout(resolve, ms))
@@ -85,11 +77,7 @@ export const updateMetaData = async(musicInfo: LX.Player.MusicInfo, isPlay: bool
 }
 
 export const initTrackInfo = async(musicInfo: LX.Player.PlayMusic, mInfo: LX.Player.MusicInfo) => {
-  if (shouldUsePCMPlayerEngine()) {
-    await initPCMTrackInfo(musicInfo, mInfo, delayUpdateMusicInfo)
-    return
-  }
-  await handleInitTrackInfo(musicInfo, mInfo, delayUpdateMusicInfo)
+  await initPCMTrackInfo(musicInfo, mInfo, delayUpdateMusicInfo)
 }
 
 const handlePlayMusic = async(musicInfo: LX.Player.PlayMusic, url: string, time: number, quality?: LX.Quality | null) => {

@@ -402,10 +402,12 @@ RCT_EXPORT_MODULE();
 #if LX_HAS_FFMPEG
 - (BOOL)scheduleConvertedAudio:(uint8_t **)convertedData
                        samples:(int)samples
+                  sampleOffset:(int)sampleOffset
                     sampleRate:(int)sampleRate
                       channels:(int)channels
                     generation:(NSUInteger)generation {
   if (samples <= 0 || channels <= 0) return YES;
+  if (sampleOffset < 0) return NO;
   if (![self isGenerationActive:generation]) return NO;
 
   AVAudioFormat *format = self.pcmFormat;
@@ -416,7 +418,8 @@ RCT_EXPORT_MODULE();
   buffer.frameLength = (AVAudioFrameCount)samples;
 
   for (int channel = 0; channel < channels; channel += 1) {
-    memcpy(buffer.floatChannelData[channel], convertedData[channel], sizeof(float) * samples);
+    const float *sourceSamples = ((const float *)convertedData[channel]) + sampleOffset;
+    memcpy(buffer.floatChannelData[channel], sourceSamples, sizeof(float) * samples);
   }
 
   [self markDecodedFrames:buffer.frameLength sampleRate:sampleRate generation:generation];
@@ -464,8 +467,10 @@ RCT_EXPORT_MODULE();
   int sampleRate = 44100;
   int sourceChannels = 2;
   int outputChannels = 2;
+  int64_t streamStartTime = 0;
   double duration = 0;
   NSString *engineErrorMessage = nil;
+  BOOL shouldTrimDecodedAudio = position > 0;
 
   void (^finishReject)(NSString *, NSString *) = ^(NSString *code, NSString *message) {
     [self emitError:message];
@@ -546,6 +551,7 @@ RCT_EXPORT_MODULE();
     av_channel_layout_default(&sourceLayout, sourceChannels);
   }
   av_channel_layout_default(&outputLayout, outputChannels);
+  streamStartTime = stream->start_time != AV_NOPTS_VALUE ? stream->start_time : 0;
   if (formatContext->duration > 0) duration = (double)formatContext->duration / AV_TIME_BASE;
   else if (stream->duration > 0) duration = (double)stream->duration * av_q2d(stream->time_base);
 
@@ -571,7 +577,7 @@ RCT_EXPORT_MODULE();
 
   [self markLoadedForGeneration:generation duration:duration sampleRate:sampleRate channels:outputChannels];
   if (position > 0) {
-    int64_t seekTarget = av_rescale_q((int64_t)(position * AV_TIME_BASE), AV_TIME_BASE_Q, stream->time_base);
+    int64_t seekTarget = streamStartTime + av_rescale_q((int64_t)(position * AV_TIME_BASE), AV_TIME_BASE_Q, stream->time_base);
     if (av_seek_frame(formatContext, streamIndex, seekTarget, AVSEEK_FLAG_BACKWARD) >= 0) {
       avcodec_flush_buffers(codecContext);
     }
@@ -629,6 +635,13 @@ RCT_EXPORT_MODULE();
         goto cleanup;
       }
 
+      int64_t frameTimestamp = frame->best_effort_timestamp != AV_NOPTS_VALUE ? frame->best_effort_timestamp : frame->pts;
+      BOOL hasFramePosition = frameTimestamp != AV_NOPTS_VALUE;
+      double framePosition = 0;
+      if (hasFramePosition) {
+        framePosition = (double)(frameTimestamp - streamStartTime) * av_q2d(stream->time_base);
+      }
+
       int convertedSamples = swr_convert(swrContext, convertedData, destinationSamples, (const uint8_t **)frame->extended_data, frame->nb_samples);
       av_frame_unref(frame);
       if (convertedSamples < 0) {
@@ -636,7 +649,26 @@ RCT_EXPORT_MODULE();
         goto cleanup;
       }
 
-      if (![self scheduleConvertedAudio:convertedData samples:convertedSamples sampleRate:sampleRate channels:outputChannels generation:generation]) {
+      int sampleOffset = 0;
+      int samplesToSchedule = convertedSamples;
+      if (shouldTrimDecodedAudio) {
+        if (hasFramePosition) {
+          double trimSeconds = position - framePosition;
+          if (trimSeconds > 0) {
+            int trimSamples = (int)(trimSeconds * sampleRate + 0.5);
+            if (trimSamples >= convertedSamples) {
+              continue;
+            }
+            if (trimSamples > 0) {
+              sampleOffset = trimSamples;
+              samplesToSchedule = convertedSamples - trimSamples;
+            }
+          }
+        }
+        shouldTrimDecodedAudio = NO;
+      }
+
+      if (![self scheduleConvertedAudio:convertedData samples:samplesToSchedule sampleOffset:sampleOffset sampleRate:sampleRate channels:outputChannels generation:generation]) {
         goto cleanup;
       }
 

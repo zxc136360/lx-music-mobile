@@ -1,9 +1,4 @@
-import TrackPlayer from 'react-native-track-player'
-import { shouldUsePCMPlayerEngine } from './platform'
-import {
-  ensureCurrentTrackMetadata,
-  loadTrackPlayerResource,
-} from '../trackPlayerCore'
+import { ensureCurrentTrackMetadata } from '../trackPlayerCore'
 import { getCurrentPCMTrack, loadPCMPlaybackResource } from '../pcmPlayerCore'
 
 const resolveShouldAutoStart = (hasCurrentTrack: boolean) => {
@@ -24,17 +19,9 @@ export const loadPlaybackResource = async({
   time: number
   quality?: LX.Quality | null
 }) => {
-  if (shouldUsePCMPlayerEngine()) {
-    const currentTrack = await getCurrentPCMTrack()
-    const shouldAutoStart = resolveShouldAutoStart(currentTrack != null)
-    await loadPCMPlaybackResource(musicInfo, url, time, shouldAutoStart)
-    return
-  }
-
-  const currentTrackIndex = await TrackPlayer.getCurrentTrack()
-  const shouldAutoStart = resolveShouldAutoStart(currentTrackIndex != null)
-
-  const track = await loadTrackPlayerResource(musicInfo, url, time, shouldAutoStart)
+  const currentTrack = await getCurrentPCMTrack()
+  const shouldAutoStart = resolveShouldAutoStart(currentTrack != null)
+  const track = await loadPCMPlaybackResource(musicInfo, url, time, shouldAutoStart)
   ensureCurrentTrackMetadata({
     title: track.title,
     artist: track.artist,

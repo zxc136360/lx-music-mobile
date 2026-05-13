@@ -1,11 +1,8 @@
-import TrackPlayer from 'react-native-track-player'
 import { defaultUrl } from '@/config'
-import { NativeModules, Platform } from 'react-native'
+import { Platform } from 'react-native'
 import settingState from '@/store/setting/state'
 import playerState from '@/store/player/state'
-import { seekToTime } from './seek'
 import { clearNowPlayingInfo, updateNowPlayingInfo } from '@/utils/nativeModules/nowPlaying'
-import { shouldUsePCMPlayerEngine } from './engine/platform'
 
 const list: LX.Player.Track[] = []
 
@@ -16,10 +13,6 @@ const wait = async(ms: number) => new Promise(resolve => setTimeout(resolve, ms)
 export const trackPlayerState = {
   isPlaying: false,
   prevDuration: -1,
-}
-
-const NativeTrackPlayerModule = NativeModules.TrackPlayerModule as {
-  getDuration?: () => Promise<number>
 }
 
 export const formatNowPlayingTitleLine = (title?: string, artist?: string) => {
@@ -115,30 +108,15 @@ export const buildTracks = (musicInfo: LX.Player.PlayMusic, url?: LX.Player.Trac
 
 export const isTempTrack = (trackId: string) => /\/\/default$/.test(trackId)
 
-export const getCurrentTrackId = async() => {
-  const currentTrackIndex = await TrackPlayer.getCurrentTrack()
-  return list[currentTrackIndex]?.id
-}
+export const getCurrentTrackId = async() => list[0]?.id ?? ''
 
-export const getCurrentTrack = async() => {
-  const currentTrackIndex = await TrackPlayer.getCurrentTrack()
-  return list[currentTrackIndex]
-}
+export const getCurrentTrack = async() => list[0]
 
-export const applyCurrentVolume = async() => {
-  if (shouldUsePCMPlayerEngine()) return
-  await TrackPlayer.setVolume(settingState.setting['player.volume'])
-}
+export const applyCurrentVolume = async() => {}
 
 export const getTrackDuration = async() => {
-  if (shouldUsePCMPlayerEngine()) {
-    const { getPCMPlayerDuration } = await import('./pcmPlayerCore')
-    return getPCMPlayerDuration()
-  }
-  if (Platform.OS == 'ios' && typeof NativeTrackPlayerModule?.getDuration == 'function') {
-    return NativeTrackPlayerModule.getDuration()
-  }
-  return TrackPlayer.getDuration()
+  const { getPCMPlayerDuration } = await import('./pcmPlayerCore')
+  return getPCMPlayerDuration()
 }
 
 export const clearTracks = () => {
@@ -158,22 +136,12 @@ export const updateCurrentTrackMetadata = async(metadata: {
   lyric?: string
   preserveArtist?: boolean
 }) => {
-  const currentTrackIndex = shouldUsePCMPlayerEngine()
-    ? null
-    : await TrackPlayer.getCurrentTrack().catch(() => null)
-  if (currentTrackIndex != null && currentTrackIndex > -1) {
-    await TrackPlayer.updateMetadataForTrack(currentTrackIndex, metadata).catch(() => {})
+  const nowPlayingMetadata: Parameters<typeof updateNowPlayingInfo>[0] = {
+    ...metadata,
+    artwork: metadata.artwork ?? '',
   }
-  if (Platform.OS == 'ios') {
-    const nowPlayingMetadata: Parameters<typeof updateNowPlayingInfo>[0] = {
-      ...metadata,
-      artwork: metadata.artwork ?? '',
-    }
-    if (metadata.playbackRate !== undefined) nowPlayingMetadata.playbackRate = metadata.playbackRate
-    await updateNowPlayingInfo(nowPlayingMetadata).catch(() => {})
-  } else {
-    await TrackPlayer.updateNowPlayingMetadata(metadata, trackPlayerState.isPlaying).catch(() => {})
-  }
+  if (metadata.playbackRate !== undefined) nowPlayingMetadata.playbackRate = metadata.playbackRate
+  await updateNowPlayingInfo(nowPlayingMetadata).catch(() => {})
 }
 
 export const updateNowPlayingDisplayMetadata = async(metadata: {
@@ -184,17 +152,12 @@ export const updateNowPlayingDisplayMetadata = async(metadata: {
   playbackRate?: number
   lyric?: string
 }) => {
-  if (Platform.OS == 'ios') {
-    const nowPlayingMetadata: Parameters<typeof updateNowPlayingInfo>[0] = {
-      ...metadata,
-      artwork: metadata.artwork ?? '',
-    }
-    if (metadata.playbackRate !== undefined) nowPlayingMetadata.playbackRate = metadata.playbackRate
-    await updateNowPlayingInfo(nowPlayingMetadata).catch(() => {})
-    return
+  const nowPlayingMetadata: Parameters<typeof updateNowPlayingInfo>[0] = {
+    ...metadata,
+    artwork: metadata.artwork ?? '',
   }
-
-  await updateCurrentTrackMetadata(metadata)
+  if (metadata.playbackRate !== undefined) nowPlayingMetadata.playbackRate = metadata.playbackRate
+  await updateNowPlayingInfo(nowPlayingMetadata).catch(() => {})
 }
 
 export const ensureCurrentTrackMetadata = (metadata: {
@@ -209,88 +172,17 @@ export const ensureCurrentTrackMetadata = (metadata: {
   preserveArtist?: boolean
 }) => {
   void (async() => {
-    const delays = Platform.OS == 'ios' ? [0, 160, 420, 900] : [0]
+    const delays = [0, 160, 420, 900]
     for (const delay of delays) {
       if (delay) await wait(delay)
-      // Retry metadata for iOS readiness, but do not reset the lockscreen progress.
       const retryMetadata = { ...metadata }
-      if (delay && Platform.OS == 'ios') delete retryMetadata.elapsedTime
-      const targetMetadata = Platform.OS == 'ios' ? formatIOSNowPlayingMetadata(retryMetadata) : retryMetadata
+      if (delay) delete retryMetadata.elapsedTime
+      const targetMetadata = formatIOSNowPlayingMetadata(retryMetadata)
       await updateCurrentTrackMetadata(targetMetadata)
     }
   })()
 }
-
-export const restoreTrack = async(track: LX.Player.Track, position: number, isPlaying: boolean) => {
-  const restoredTrack = { ...track }
-  await TrackPlayer.add([restoredTrack]).then(() => list.push(restoredTrack))
-  const queue = await TrackPlayer.getQueue() as LX.Player.Track[]
-  const trackIndex = queue.findIndex(t => t.id == restoredTrack.id)
-  if (trackIndex > -1) await TrackPlayer.skip(trackIndex)
-  global.lx.playerTrackId = restoredTrack.id
-  if (position > 0) await seekToTime(position)
-  if (isPlaying) await TrackPlayer.play()
-  else await TrackPlayer.pause()
-  await applyCurrentVolume()
-  ensureCurrentTrackMetadata({
-    title: restoredTrack.title,
-    artist: restoredTrack.artist,
-    album: restoredTrack.album,
-    artwork: typeof restoredTrack.artwork == 'string' ? restoredTrack.artwork : undefined,
-    duration: restoredTrack.duration,
-    elapsedTime: position,
-    lyric: typeof restoredTrack.lyric == 'string' ? restoredTrack.lyric : undefined,
-  })
-}
-
-export const initTrackInfo = async(musicInfo: LX.Player.PlayMusic, mInfo: LX.Player.MusicInfo, delayUpdateMusicInfo: (musicInfo: LX.Player.MusicInfo, lyric?: string, isPlaying?: boolean) => void) => {
-  const tracks = buildTracks(musicInfo)
-  await TrackPlayer.add(tracks).then(() => list.push(...tracks))
-  const queue = await TrackPlayer.getQueue() as LX.Player.Track[]
-  await TrackPlayer.skip(queue.findIndex(t => t.id == tracks[0].id))
-  delayUpdateMusicInfo(mInfo)
-}
-
-export const loadTrackPlayerResource = async(musicInfo: LX.Player.PlayMusic, url: string, time: number, shouldAutoStart: boolean) => {
-  const currentTrackIndex = await TrackPlayer.getCurrentTrack()
-  const tracks = buildTracks(musicInfo, url)
-  const track = tracks[0]
-  await TrackPlayer.add(tracks).then(() => list.push(...tracks))
-  const queue = await TrackPlayer.getQueue() as LX.Player.Track[]
-  await TrackPlayer.skip(queue.findIndex(t => t.id == track.id))
-  global.lx.playerTrackId = track.id
-
-  if (currentTrackIndex == null) {
-    if (!isTempTrack(track.id as string)) {
-      if (time) await seekToTime(time)
-      if (!shouldAutoStart) {
-        await TrackPlayer.pause()
-      } else {
-        await TrackPlayer.play()
-        await applyCurrentVolume()
-      }
-    }
-  } else {
-    await TrackPlayer.pause()
-    if (!isTempTrack(track.id as string)) {
-      await seekToTime(time)
-      await TrackPlayer.play()
-      await applyCurrentVolume()
-    }
-  }
-
-  if (queue.length > tracks.length) {
-    const removeCount = queue.length - tracks.length
-    void TrackPlayer.remove(Array(removeCount).fill(null).map((_, i) => i)).then(() => list.splice(0, list.length - removeCount))
-  }
-  return track
-}
-
 export const destroyTrackPlayerCore = async() => {
-  try {
-    await TrackPlayer.destroy()
-  } finally {
-    if (Platform.OS == 'ios') await clearNowPlayingInfo().catch(() => {})
-    clearTracks()
-  }
+  await clearNowPlayingInfo().catch(() => {})
+  clearTracks()
 }

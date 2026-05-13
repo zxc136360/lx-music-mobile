@@ -1,13 +1,8 @@
 /* eslint-disable @typescript-eslint/no-misused-promises */
-import TrackPlayer, { Event as TPEvent } from 'react-native-track-player'
-import { Platform } from 'react-native'
-import { pause, play, playNext, playPrev } from '@/core/player/player'
-import { markTimeoutExitInteraction } from '@/core/player/timeoutExit'
+import { pause, play } from '@/core/player/player'
 import { initUnifiedPlayerController } from './controller'
 import { onUnifiedPlayerEvent } from './engine'
-import { shouldUsePCMPlayerEngine } from './engine/platform'
 import { setVolume } from './utils'
-import { exitApp } from '@/core/common'
 import playerState from '@/store/player/state'
 import settingState from '@/store/setting/state'
 
@@ -36,91 +31,20 @@ const registerPlaybackService = async() => {
 
   console.log('reg services...')
   initUnifiedPlayerController()
-  if (shouldUsePCMPlayerEngine()) {
-    onUnifiedPlayerEvent((event) => {
-      if (event.type != 'interruption') return
+  onUnifiedPlayerEvent((event) => {
+    if (event.type != 'interruption') return
 
-      if (event.state == 'began') {
-        shouldResumeAfterDuck = event.wasPlaying === true || playerState.isPlay
-        clearDuckRecoveryTimeouts()
-        void pause()
-        return
-      }
-
-      restoreConfiguredVolume()
-      const shouldResume = shouldResumeAfterDuck && event.shouldResume
-      shouldResumeAfterDuck = false
-      if (shouldResume) play()
-    })
-    isInitialized = true
-    return
-  }
-  TrackPlayer.addEventListener(TPEvent.RemotePlay, () => {
-    // console.log('remote-play')
-    markTimeoutExitInteraction()
-    play()
-  })
-
-  TrackPlayer.addEventListener(TPEvent.RemotePause, () => {
-    // console.log('remote-pause')
-    markTimeoutExitInteraction()
-    void pause()
-  })
-
-  TrackPlayer.addEventListener(TPEvent.RemoteNext, () => {
-    // console.log('remote-next')
-    markTimeoutExitInteraction()
-    void playNext()
-  })
-
-  TrackPlayer.addEventListener(TPEvent.RemotePrevious, () => {
-    // console.log('remote-previous')
-    markTimeoutExitInteraction()
-    void playPrev()
-  })
-
-  TrackPlayer.addEventListener(TPEvent.RemoteStop, () => {
-    // console.log('remote-stop')
-    shouldResumeAfterDuck = false
-    clearDuckRecoveryTimeouts()
-    global.lx.isPlayedStop = false
-    exitApp('Remote Stop')
-  })
-
-  TrackPlayer.addEventListener(TPEvent.RemoteDuck, ({ permanent, paused, ducking }) => {
-    // On iOS, interruptions surface through RemoteDuck and we need to explicitly
-    // restore playback/volume after the system finishes ducking or pausing audio.
-    if (permanent) {
-      shouldResumeAfterDuck = false
-      clearDuckRecoveryTimeouts()
-      if (paused) void pause()
-      return
-    }
-
-    if (ducking) {
-      shouldResumeAfterDuck ||= playerState.isPlay
-      clearDuckRecoveryTimeouts()
-      return
-    }
-
-    if (paused) {
-      shouldResumeAfterDuck = playerState.isPlay
+    if (event.state == 'began') {
+      shouldResumeAfterDuck = event.wasPlaying === true || playerState.isPlay
       clearDuckRecoveryTimeouts()
       void pause()
       return
     }
 
-    if (Platform.OS == 'ios' || ducking === false) restoreConfiguredVolume()
-
-    if (shouldResumeAfterDuck) {
-      shouldResumeAfterDuck = false
-      play()
-    }
-  })
-
-  TrackPlayer.addEventListener(TPEvent.RemoteSeek, async({ position }) => {
-    markTimeoutExitInteraction()
-    global.app_event.setProgress(position as number)
+    restoreConfiguredVolume()
+    const shouldResume = shouldResumeAfterDuck && event.shouldResume
+    shouldResumeAfterDuck = false
+    if (shouldResume) play()
   })
   isInitialized = true
 }
@@ -129,11 +53,6 @@ const registerPlaybackService = async() => {
 export default () => {
   if (global.lx.playerStatus.isRegisteredService) return
   console.log('handle registerPlaybackService...')
-  if (shouldUsePCMPlayerEngine()) {
-    void registerPlaybackService()
-    global.lx.playerStatus.isRegisteredService = true
-    return
-  }
-  TrackPlayer.registerPlaybackService(() => registerPlaybackService)
+  void registerPlaybackService()
   global.lx.playerStatus.isRegisteredService = true
 }

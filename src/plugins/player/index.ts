@@ -1,8 +1,6 @@
-import TrackPlayer, { State } from 'react-native-track-player'
-import { updateOptions, setVolume, setPlaybackRate, migratePlayerCache, destroy as destroyPlayer, getPosition } from './utils'
+import { setVolume, setPlaybackRate, migratePlayerCache, destroy as destroyPlayer, getPosition } from './utils'
 import { getCurrentTrack, restoreTrack, updateDisplayMetaData, updateMetaDataImmediately } from './playList'
 import { soundEffectController } from './soundEffect'
-import { shouldUsePCMPlayerEngine } from './engine/platform'
 import { setupPCMPlayerCore } from './pcmPlayerCore'
 import settingState from '@/store/setting/state'
 import playerState from '@/store/player/state'
@@ -33,21 +31,9 @@ const initial = async({ volume, playRate, cacheSize, isHandleAudioFocus, isEnabl
   global.lx.playerStatus.isIniting = true
   console.log('Cache Size', cacheSize * 1024)
   await migratePlayerCache()
-  if (shouldUsePCMPlayerEngine()) {
-    await setupPCMPlayerCore({ volume, playRate, cacheSize, isHandleAudioFocus, isEnableAudioOffload })
-  } else {
-    await TrackPlayer.setupPlayer({
-      maxCacheSize: cacheSize * 1024,
-      maxBuffer: 1000,
-      waitForBuffer: true,
-      handleAudioFocus: isHandleAudioFocus,
-      audioOffload: isEnableAudioOffload,
-      autoUpdateMetadata: false,
-    })
-  }
+  await setupPCMPlayerCore({ volume, playRate, cacheSize, isHandleAudioFocus, isEnableAudioOffload })
   global.lx.playerStatus.isInitialized = true
   global.lx.playerStatus.isIniting = false
-  if (!shouldUsePCMPlayerEngine()) await updateOptions()
   await setVolume(volume)
   await setPlaybackRate(playRate)
   await soundEffectController.applyCurrentConfig()
@@ -73,7 +59,7 @@ const reloadConfig = async() => {
     const [track, position, currentState] = await Promise.all([
       getCurrentTrack(),
       getPosition(),
-      shouldUsePCMPlayerEngine() ? Promise.resolve(playerState.isPlay ? State.Playing : State.Paused) : TrackPlayer.getState(),
+      Promise.resolve(playerState.isPlay),
     ])
     const shouldRestoreTrack = typeof track?.id == 'string' && !/\/\/default$/.test(track.id)
 
@@ -81,7 +67,7 @@ const reloadConfig = async() => {
     await initial(getPlayerConfig())
 
     if (!shouldRestoreTrack || !track) return
-    await restoreTrack(track, position, currentState == State.Playing)
+    await restoreTrack(track, position, currentState)
   }
 
   reconfigurePromise = reconfigurePromise.then(run, run)

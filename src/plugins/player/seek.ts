@@ -1,32 +1,20 @@
-import TrackPlayer from 'react-native-track-player'
-import { NativeModules, Platform } from 'react-native'
+import { Platform } from 'react-native'
 import {
   mapPlayerTimeToTimelineTime,
   mapTimelineTimeToPlayerTime,
 } from '@/core/player/timeline'
 import playerState from '@/store/player/state'
-import { shouldUsePCMPlayerEngine } from './engine/platform'
 import {
   getPCMPlayerDuration,
   getPCMPlayerPosition,
   seekPCMPlayer,
 } from './pcmPlayerCore'
 
-const NativeTrackPlayerModule = NativeModules.TrackPlayerModule as {
-  getPosition?: () => Promise<number>
-  getDuration?: () => Promise<number>
-}
-
 const wait = async(ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 let seekActionId = 0
-const trackPlayerSeekTo = TrackPlayer.seekTo as unknown as (time: number) => Promise<number | undefined>
 
 export const getPlayerDuration = async() => {
-  if (shouldUsePCMPlayerEngine()) return getPCMPlayerDuration()
-  if (Platform.OS == 'ios' && typeof NativeTrackPlayerModule?.getDuration == 'function') {
-    return NativeTrackPlayerModule.getDuration()
-  }
-  return TrackPlayer.getDuration()
+  return getPCMPlayerDuration()
 }
 
 const waitForPlayerDuration = async() => {
@@ -42,11 +30,7 @@ const waitForPlayerDuration = async() => {
 }
 
 export const getRawPosition = async() => {
-  if (shouldUsePCMPlayerEngine()) return getPCMPlayerPosition()
-  if (Platform.OS == 'ios' && typeof NativeTrackPlayerModule?.getPosition == 'function') {
-    return NativeTrackPlayerModule.getPosition()
-  }
-  return TrackPlayer.getPosition()
+  return getPCMPlayerPosition()
 }
 
 export const getAccuratePosition = async() => {
@@ -67,9 +51,7 @@ export const seekToTime = async(targetTime: number) => {
     : targetTime
 
   if (actionId != seekActionId) return targetTime
-  const seekResult = shouldUsePCMPlayerEngine()
-    ? await seekPCMPlayer(playerTargetTime)
-    : await trackPlayerSeekTo(playerTargetTime)
+  const seekResult = await seekPCMPlayer(playerTargetTime)
   if (Platform.OS != 'ios') return targetTime
 
   let position = typeof seekResult == 'number' && Number.isFinite(seekResult)
@@ -96,9 +78,7 @@ export const seekToTime = async(targetTime: number) => {
     }
     stableCount = 0
     if (actionId != seekActionId) return targetTime
-    const retryResult = shouldUsePCMPlayerEngine()
-      ? await seekPCMPlayer(playerTargetTime)
-      : await trackPlayerSeekTo(playerTargetTime)
+    const retryResult = await seekPCMPlayer(playerTargetTime)
     if (typeof retryResult == 'number' && Number.isFinite(retryResult)) {
       // eslint-disable-next-line require-atomic-updates
       position = retryResult
