@@ -117,7 +117,7 @@ end
 target 'LxMusicMobile' do
   config = use_native_modules!
 
-  pod 'FFmpeg-iOS'
+  pod 'ffmpeg-kit-ios-full', :podspec => 'https://raw.githubusercontent.com/luthviar/ffmpeg-kit-ios-full/main/ffmpeg-kit-ios-full.podspec'
 
   use_react_native!(
     :path => config[:reactNativePath],

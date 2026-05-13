@@ -430,6 +430,10 @@ RCT_EXPORT_MODULE();
   AVPacket *packet = NULL;
   AVFrame *frame = NULL;
   uint8_t **convertedData = NULL;
+  AVChannelLayout sourceLayout;
+  AVChannelLayout outputLayout;
+  memset(&sourceLayout, 0, sizeof(sourceLayout));
+  memset(&outputLayout, 0, sizeof(outputLayout));
   BOOL promiseSettled = NO;
   BOOL emittedTrackChanged = NO;
   BOOL inputEnded = NO;
@@ -505,24 +509,28 @@ RCT_EXPORT_MODULE();
   }
 
   int sampleRate = codecContext->sample_rate > 0 ? codecContext->sample_rate : 44100;
-  int sourceChannels = codecContext->channels > 0 ? codecContext->channels : 2;
+  int sourceChannels = codecContext->ch_layout.nb_channels > 0 ? codecContext->ch_layout.nb_channels : 2;
   int outputChannels = MIN(MAX(sourceChannels, 1), 2);
-  uint64_t sourceLayout = codecContext->channel_layout ? codecContext->channel_layout : av_get_default_channel_layout(sourceChannels);
-  uint64_t outputLayout = av_get_default_channel_layout(outputChannels);
+  if (codecContext->ch_layout.nb_channels > 0 && av_channel_layout_check(&codecContext->ch_layout)) {
+    av_channel_layout_copy(&sourceLayout, &codecContext->ch_layout);
+  } else {
+    av_channel_layout_default(&sourceLayout, sourceChannels);
+  }
+  av_channel_layout_default(&outputLayout, outputChannels);
   double duration = 0;
   if (formatContext->duration > 0) duration = (double)formatContext->duration / AV_TIME_BASE;
   else if (stream->duration > 0) duration = (double)stream->duration * av_q2d(stream->time_base);
 
-  swrContext = swr_alloc_set_opts(NULL,
-                                  (int64_t)outputLayout,
-                                  AV_SAMPLE_FMT_FLTP,
-                                  sampleRate,
-                                  (int64_t)sourceLayout,
-                                  codecContext->sample_fmt,
-                                  sampleRate,
-                                  0,
-                                  NULL);
-  if (swrContext == NULL || swr_init(swrContext) < 0) {
+  result = swr_alloc_set_opts2(&swrContext,
+                               &outputLayout,
+                               AV_SAMPLE_FMT_FLTP,
+                               sampleRate,
+                               &sourceLayout,
+                               codecContext->sample_fmt,
+                               sampleRate,
+                               0,
+                               NULL);
+  if (result < 0 || swrContext == NULL || swr_init(swrContext) < 0) {
     finishReject(@"resampler_failed", @"Failed to initialize FFmpeg resampler");
     goto cleanup;
   }
@@ -663,6 +671,8 @@ cleanup:
   if (swrContext != NULL) swr_free(&swrContext);
   if (codecContext != NULL) avcodec_free_context(&codecContext);
   if (formatContext != NULL) avformat_close_input(&formatContext);
+  av_channel_layout_uninit(&sourceLayout);
+  av_channel_layout_uninit(&outputLayout);
 }
 #endif
 
