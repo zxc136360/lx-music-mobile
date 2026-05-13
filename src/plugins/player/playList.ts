@@ -18,6 +18,7 @@ import {
   initPCMTrackInfo,
   restorePCMTrack,
 } from './pcmPlayerCore'
+import { log } from '@/utils/log'
 
 export { state }
 
@@ -90,7 +91,7 @@ export const playMusic = (musicInfo: LX.Player.PlayMusic, url: string, time: num
   void playPromise.finally(() => {
     if (id != actionId) return
     playPromise = handlePlayMusic(musicInfo, url, time, quality).catch((err: Error & { lxHandled?: boolean }) => {
-      console.log(err)
+      log.error('[player] load playback resource failed:', err)
       if (!err?.lxHandled) {
         global.app_event.error()
         global.app_event.playerError()
@@ -139,7 +140,6 @@ export const updateDisplayMetaData = async(mInfo: LX.Player.MusicInfo, lyric?: s
 }
 
 const updateMetaInfo = async(mInfo: LX.Player.MusicInfo, lyric?: string, isPlaying = state.isPlaying) => {
-  console.log('updateMetaInfo', lyric)
   state.isPlaying = isPlaying
   const displayMetadata = buildDisplayMetadata(mInfo, lyric, isPlaying)
   const metadata = {

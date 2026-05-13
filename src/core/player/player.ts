@@ -28,6 +28,7 @@ import { checkIgnoringBatteryOptimization, checkNotificationPermission, debounce
 import { LIST_IDS } from '@/config/constant'
 import { addListMusics, removeListMusics } from '@/core/list'
 import { addDislikeInfo } from '@/core/dislikeList'
+import { log } from '@/utils/log'
 
 // import { checkMusicFileAvailable } from '@renderer/utils/music'
 
@@ -141,7 +142,7 @@ export const setMusicUrl = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem
     if (!url) return
     setResource(musicInfo, url, playerState.progress.nowPlayTime)
   }).catch((err: any) => {
-    console.log(err)
+    log.error('[player] get music url failed:', err)
     setStatusText(err.message as string)
     global.app_event.error()
     addDelayNextTimeout()
@@ -187,7 +188,7 @@ const handleRestorePlay = async(restorePlayInfo: LX.Player.SavedPlayInfo) => {
     })
     global.app_event.lyricUpdated()
   }).catch((err) => {
-    console.log(err)
+    log.warn('[player] lyric load failed:', err)
     if (musicInfo.id != playMusicInfo.musicInfo?.id) return
     setStatusText(global.i18n.t('lyric__load_error'))
   })
@@ -219,7 +220,7 @@ const debouncePlay = debounceBackgroundTimer((musicInfo: LX.Player.PlayMusic) =>
     })
     global.app_event.lyricUpdated()
   }).catch((err) => {
-    console.log(err)
+    log.warn('[player] lyric load failed:', err)
     if (musicInfo.id != playerState.playMusicInfo.musicInfo?.id) return
     setStatusText(global.i18n.t('lyric__load_error'))
   })

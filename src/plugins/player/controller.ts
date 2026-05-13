@@ -4,6 +4,7 @@ import { clearPCMPlaybackTrack } from './pcmPlayerCore'
 import { isTempId } from './utils'
 import { exitApp } from '@/core/common'
 import playerState from '@/store/player/state'
+import { log } from '@/utils/log'
 import type { UnifiedPlayerEvent } from './engine/types'
 
 let isInitialized = false
@@ -91,7 +92,7 @@ export const initUnifiedPlayerController = () => {
         if (global.lx.isPlayedStop) void handleExitApp('Timeout Exit')
         break
       case 'error':
-        console.log('playback-error', event.error)
+        log.error('[player] playback error:', event.error)
         global.app_event.error()
         global.app_event.playerError()
         break
