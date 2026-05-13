@@ -61,7 +61,7 @@ export type PCMPlayerEvent =
   }
 
 interface NativePCMPlayerModule {
-  isAvailable?: boolean
+  isAvailable?: boolean | number
   setup?: (config?: Record<string, unknown>) => Promise<void>
   load?: (source: PCMPlayerSource) => Promise<{ trackId: string, duration: number, cancelled?: boolean }>
   play?: () => Promise<void>
@@ -90,8 +90,10 @@ const getPCMPlayerSupportDetail = () => ({
   nativeModules: Object.keys(NativeModules).filter(name => name.includes('PCM') || name.includes('Player')),
 })
 
+const isNativePCMPlayerAvailable = PCMPlayerModule?.isAvailable === true || PCMPlayerModule?.isAvailable === 1
+
 export const isPCMPlayerSupported = Platform.OS == 'ios' &&
-  PCMPlayerModule?.isAvailable === true &&
+  isNativePCMPlayerAvailable &&
   typeof PCMPlayerModule?.setup == 'function' &&
   typeof PCMPlayerModule?.load == 'function'
 
