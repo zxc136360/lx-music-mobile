@@ -6,7 +6,7 @@ export type UnifiedPlaybackState =
   | 'paused'
   | 'stopped'
 
-export type UnifiedDriverName = 'trackPlayer'
+export type UnifiedDriverName = 'trackPlayer' | 'pcmPlayer'
 
 export type UnifiedPlayerEvent =
   | {
@@ -33,4 +33,13 @@ export type UnifiedPlayerEvent =
     driver: UnifiedDriverName
     info: any
     trackId: string
+  }
+  | {
+    type: 'interruption'
+    driver: UnifiedDriverName
+    state: 'began' | 'ended'
+    shouldResume?: boolean
+    wasPlaying?: boolean
+    position?: number
+    duration?: number
   }

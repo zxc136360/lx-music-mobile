@@ -1,9 +1,10 @@
-import TrackPlayer from 'react-native-track-player'
 import { Platform } from 'react-native'
 import BackgroundTimer from 'react-native-background-timer'
 import { updateMetaDataImmediately } from './playList'
 import { initUnifiedPlayerEngine, onUnifiedPlayerEvent } from './engine'
-import { getPosition, isEmpty, setStop } from './utils'
+import { shouldUsePCMPlayerEngine } from './engine/platform'
+import { clearPCMPlaybackTrack } from './pcmPlayerCore'
+import { getPosition, isEmpty, setPause, setStop, setVolume } from './utils'
 import { exitApp } from '@/core/common'
 import { setNowPlayTime } from '@/core/player/progress'
 import { playNext, setMusicUrl } from '@/core/player/player'
@@ -119,7 +120,7 @@ export const initUnifiedPlayerController = () => {
             clearLoadingTimeout()
             setStatusText('')
             if (Platform.OS == 'ios') {
-              void TrackPlayer.setVolume(settingState.setting['player.volume'])
+              void setVolume(settingState.setting['player.volume'])
             }
             if (Platform.OS == 'ios' && playerState.musicInfo.id) {
               // Refresh duration/elapsed metadata after playback actually starts so the
@@ -150,10 +151,10 @@ export const initUnifiedPlayerController = () => {
         if (event.info?.track == null) return
         if (global.lx.isPlayedStop) return handleExitApp('Timeout Exit')
         if (Platform.OS == 'ios') {
-          void TrackPlayer.setVolume(settingState.setting['player.volume'])
+          void setVolume(settingState.setting['player.volume'])
         }
         if (Platform.OS != 'ios' && isEmpty()) {
-          await TrackPlayer.pause()
+          await setPause()
           global.app_event.playerPause()
           global.app_event.pause()
           global.app_event.playerEnded()
@@ -163,7 +164,8 @@ export const initUnifiedPlayerController = () => {
         }
         break
       case 'ended':
-        global.lx.playerTrackId = ''
+        if (shouldUsePCMPlayerEngine()) clearPCMPlaybackTrack()
+        else global.lx.playerTrackId = ''
         global.app_event.playerPause()
         global.app_event.pause()
         global.app_event.playerEnded()

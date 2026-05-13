@@ -5,6 +5,12 @@ import {
   mapTimelineTimeToPlayerTime,
 } from '@/core/player/timeline'
 import playerState from '@/store/player/state'
+import { shouldUsePCMPlayerEngine } from './engine/platform'
+import {
+  getPCMPlayerDuration,
+  getPCMPlayerPosition,
+  seekPCMPlayer,
+} from './pcmPlayerCore'
 
 const NativeTrackPlayerModule = NativeModules.TrackPlayerModule as {
   getPosition?: () => Promise<number>
@@ -13,8 +19,10 @@ const NativeTrackPlayerModule = NativeModules.TrackPlayerModule as {
 
 const wait = async(ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 let seekActionId = 0
+const trackPlayerSeekTo = TrackPlayer.seekTo as unknown as (time: number) => Promise<number | undefined>
 
 export const getPlayerDuration = async() => {
+  if (shouldUsePCMPlayerEngine()) return getPCMPlayerDuration()
   if (Platform.OS == 'ios' && typeof NativeTrackPlayerModule?.getDuration == 'function') {
     return NativeTrackPlayerModule.getDuration()
   }
@@ -34,6 +42,7 @@ const waitForPlayerDuration = async() => {
 }
 
 export const getRawPosition = async() => {
+  if (shouldUsePCMPlayerEngine()) return getPCMPlayerPosition()
   if (Platform.OS == 'ios' && typeof NativeTrackPlayerModule?.getPosition == 'function') {
     return NativeTrackPlayerModule.getPosition()
   }
@@ -58,10 +67,14 @@ export const seekToTime = async(targetTime: number) => {
     : targetTime
 
   if (actionId != seekActionId) return targetTime
-  await TrackPlayer.seekTo(playerTargetTime)
+  const seekResult = shouldUsePCMPlayerEngine()
+    ? await seekPCMPlayer(playerTargetTime)
+    : await trackPlayerSeekTo(playerTargetTime)
   if (Platform.OS != 'ios') return targetTime
 
-  let position = playerTargetTime
+  let position = typeof seekResult == 'number' && Number.isFinite(seekResult)
+    ? seekResult
+    : playerTargetTime
   let stableCount = 0
   for (const [delay, tolerance] of [
     [140, 1.2],
@@ -83,7 +96,13 @@ export const seekToTime = async(targetTime: number) => {
     }
     stableCount = 0
     if (actionId != seekActionId) return targetTime
-    await TrackPlayer.seekTo(playerTargetTime)
+    const retryResult = shouldUsePCMPlayerEngine()
+      ? await seekPCMPlayer(playerTargetTime)
+      : await trackPlayerSeekTo(playerTargetTime)
+    if (typeof retryResult == 'number' && Number.isFinite(retryResult)) {
+      // eslint-disable-next-line require-atomic-updates
+      position = retryResult
+    }
   }
   if (actionId != seekActionId) return targetTime
   const finalPosition = await getRawPosition().catch(() => position)

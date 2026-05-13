@@ -5,6 +5,7 @@ import settingState from '@/store/setting/state'
 import playerState from '@/store/player/state'
 import { seekToTime } from './seek'
 import { clearNowPlayingInfo, updateNowPlayingInfo } from '@/utils/nativeModules/nowPlaying'
+import { shouldUsePCMPlayerEngine } from './engine/platform'
 
 const list: LX.Player.Track[] = []
 
@@ -125,10 +126,15 @@ export const getCurrentTrack = async() => {
 }
 
 export const applyCurrentVolume = async() => {
+  if (shouldUsePCMPlayerEngine()) return
   await TrackPlayer.setVolume(settingState.setting['player.volume'])
 }
 
 export const getTrackDuration = async() => {
+  if (shouldUsePCMPlayerEngine()) {
+    const { getPCMPlayerDuration } = await import('./pcmPlayerCore')
+    return getPCMPlayerDuration()
+  }
   if (Platform.OS == 'ios' && typeof NativeTrackPlayerModule?.getDuration == 'function') {
     return NativeTrackPlayerModule.getDuration()
   }
@@ -152,7 +158,9 @@ export const updateCurrentTrackMetadata = async(metadata: {
   lyric?: string
   preserveArtist?: boolean
 }) => {
-  const currentTrackIndex = await TrackPlayer.getCurrentTrack().catch(() => null)
+  const currentTrackIndex = shouldUsePCMPlayerEngine()
+    ? null
+    : await TrackPlayer.getCurrentTrack().catch(() => null)
   if (currentTrackIndex != null && currentTrackIndex > -1) {
     await TrackPlayer.updateMetadataForTrack(currentTrackIndex, metadata).catch(() => {})
   }

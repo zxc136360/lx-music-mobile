@@ -16,6 +16,7 @@
 		13B07FBC1A68108700A75B9A /* AppDelegate.mm in Sources */ = {isa = PBXBuildFile; fileRef = 13B07FB01A68108700A75B9A /* AppDelegate.mm */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		13B07FC11A68108700A75B9A /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 13B07FB71A68108700A75B9A /* main.m */; };
+		4E6A1003A0F340D5B1E6A003 /* LXPCMPlayerModule.mm in Sources */ = {isa = PBXBuildFile; fileRef = 4E6A1002A0F340D5B1E6A003 /* LXPCMPlayerModule.mm */; };
 		7699B88040F8A987B510C191 /* libPods-LxMusicMobile-LxMusicMobileTests.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 19F6CBCC0A4E27FBF8BF4A61 /* libPods-LxMusicMobile-LxMusicMobileTests.a */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 /* End PBXBuildFile section */
@@ -45,6 +46,8 @@
 		13B07FB71A68108700A75B9A /* main.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = main.m; path = LxMusicMobile/main.m; sourceTree = "<group>"; };
 		19F6CBCC0A4E27FBF8BF4A61 /* libPods-LxMusicMobile-LxMusicMobileTests.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-LxMusicMobile-LxMusicMobileTests.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B4392A12AC88292D35C810B /* Pods-LxMusicMobile.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-LxMusicMobile.debug.xcconfig"; path = "Target Support Files/Pods-LxMusicMobile/Pods-LxMusicMobile.debug.xcconfig"; sourceTree = "<group>"; };
+		4E6A1001A0F340D5B1E6A003 /* LXPCMPlayerModule.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = LXPCMPlayerModule.h; path = LxMusicMobile/LXPCMPlayerModule.h; sourceTree = "<group>"; };
+		4E6A1002A0F340D5B1E6A003 /* LXPCMPlayerModule.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = LXPCMPlayerModule.mm; path = LxMusicMobile/LXPCMPlayerModule.mm; sourceTree = "<group>"; };
 		5709B34CF0A7D63546082F79 /* Pods-LxMusicMobile.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-LxMusicMobile.release.xcconfig"; path = "Target Support Files/Pods-LxMusicMobile/Pods-LxMusicMobile.release.xcconfig"; sourceTree = "<group>"; };
 		5B7EB9410499542E8C5724F5 /* Pods-LxMusicMobile-LxMusicMobileTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-LxMusicMobile-LxMusicMobileTests.debug.xcconfig"; path = "Target Support Files/Pods-LxMusicMobile-LxMusicMobileTests/Pods-LxMusicMobile-LxMusicMobileTests.debug.xcconfig"; sourceTree = "<group>"; };
 		5DCACB8F33CDC322A6C60F78 /* libPods-LxMusicMobile.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-LxMusicMobile.a"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -97,6 +100,8 @@
 			children = (
 				13B07FAF1A68108700A75B9A /* AppDelegate.h */,
 				13B07FB01A68108700A75B9A /* AppDelegate.mm */,
+				4E6A1001A0F340D5B1E6A003 /* LXPCMPlayerModule.h */,
+				4E6A1002A0F340D5B1E6A003 /* LXPCMPlayerModule.mm */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				11F1A0A5A0F340D5B1E6A001 /* icomoon.ttf */,
 				22D0B000A0F340D5B1E6A003 /* user-api-preload.js */,
@@ -407,6 +412,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				13B07FBC1A68108700A75B9A /* AppDelegate.mm in Sources */,
+				4E6A1003A0F340D5B1E6A003 /* LXPCMPlayerModule.mm in Sources */,
 				13B07FC11A68108700A75B9A /* main.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

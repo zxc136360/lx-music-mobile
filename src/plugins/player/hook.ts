@@ -1,6 +1,9 @@
 import { useEffect, useState, useRef } from 'react'
 import TrackPlayer, { State, Event } from 'react-native-track-player'
 import { getUnifiedPlaybackState, onUnifiedPlayerEvent } from './engine'
+import { shouldUsePCMPlayerEngine } from './engine/platform'
+import { getPCMPlayerBufferedPosition } from './pcmPlayerCore'
+import { getDuration, getPosition } from './utils'
 
 /** Get current playback state and subsequent updatates  */
 export const usePlaybackState = () => {
@@ -131,11 +134,18 @@ export function useProgress(updateInterval: number) {
   }, [])
 
   const getProgress = async() => {
-    const [position, duration, buffered] = await Promise.all([
-      TrackPlayer.getPosition(),
-      TrackPlayer.getDuration(),
-      TrackPlayer.getBufferedPosition(),
-    ])
+    const progressInfoPromise = shouldUsePCMPlayerEngine()
+      ? Promise.all([
+        getPosition(),
+        getDuration(),
+        getPCMPlayerBufferedPosition(),
+      ])
+      : Promise.all([
+        TrackPlayer.getPosition(),
+        TrackPlayer.getDuration(),
+        TrackPlayer.getBufferedPosition(),
+      ])
+    const [position, duration, buffered] = await progressInfoPromise
     // After the asynchronous code is executed, if the component has been uninstalled, do not update the status
     if (isUnmountedRef.current) return
 
@@ -179,7 +189,7 @@ export function useBufferProgress() {
       interval = null
     }
     const updateBuffer = async() => {
-      const buffered = await (duration ? TrackPlayer.getBufferedPosition() : Promise.all([TrackPlayer.getBufferedPosition(), TrackPlayer.getDuration()]).then(([buffered, _duration]) => {
+      const buffered = await (duration ? getBufferedPosition() : Promise.all([getBufferedPosition(), getDuration()]).then(([buffered, _duration]) => {
         duration = _duration
         return buffered
       }))
@@ -191,8 +201,13 @@ export function useBufferProgress() {
       setProgress(duration ? (buffered / duration) : 0)
     }
 
-    const sub = TrackPlayer.addEventListener(Event.PlaybackState, data => {
-      switch (data.state) {
+    const getBufferedPosition = async() => {
+      if (shouldUsePCMPlayerEngine()) return getPCMPlayerBufferedPosition()
+      return TrackPlayer.getBufferedPosition()
+    }
+
+    const handleState = (state: State) => {
+      switch (state) {
         case State.None:
           // console.log('state', 'None')
           setProgress(0)
@@ -223,11 +238,31 @@ export function useBufferProgress() {
         //   console.log('playback-state', data)
         //   break
       }
-    })
+    }
+
+    const sub = shouldUsePCMPlayerEngine()
+      ? {
+          remove: onUnifiedPlayerEvent(event => {
+            if (event.type == 'state') {
+              switch (event.state) {
+                case 'idle':
+                  handleState(State.None)
+                  break
+                case 'buffering':
+                case 'loading':
+                  handleState(State.Buffering)
+                  break
+              }
+            }
+          }),
+        }
+      : TrackPlayer.addEventListener(Event.PlaybackState, data => {
+        handleState(data.state as State)
+      })
 
     void updateBuffer()
-    void TrackPlayer.getState().then((state) => {
-      if (state == State.Buffering) interval = setInterval(updateBuffer, 1000)
+    void getUnifiedPlaybackState().then((state) => {
+      if (state == 'buffering' || state == 'loading') interval = setInterval(updateBuffer, 1000)
     })
     return () => {
       isUnmounted = true

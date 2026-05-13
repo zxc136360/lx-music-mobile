@@ -4,6 +4,9 @@ import { Platform } from 'react-native'
 import { pause, play, playNext, playPrev } from '@/core/player/player'
 import { markTimeoutExitInteraction } from '@/core/player/timeoutExit'
 import { initUnifiedPlayerController } from './controller'
+import { onUnifiedPlayerEvent } from './engine'
+import { shouldUsePCMPlayerEngine } from './engine/platform'
+import { setVolume } from './utils'
 import { exitApp } from '@/core/common'
 import playerState from '@/store/player/state'
 import settingState from '@/store/setting/state'
@@ -21,7 +24,7 @@ const restoreConfiguredVolume = () => {
   clearDuckRecoveryTimeouts()
 
   const applyVolume = () => {
-    void TrackPlayer.setVolume(settingState.setting['player.volume']).catch(() => {})
+    void setVolume(settingState.setting['player.volume']).catch(() => {})
   }
 
   applyVolume()
@@ -33,6 +36,25 @@ const registerPlaybackService = async() => {
 
   console.log('reg services...')
   initUnifiedPlayerController()
+  if (shouldUsePCMPlayerEngine()) {
+    onUnifiedPlayerEvent((event) => {
+      if (event.type != 'interruption') return
+
+      if (event.state == 'began') {
+        shouldResumeAfterDuck = event.wasPlaying === true || playerState.isPlay
+        clearDuckRecoveryTimeouts()
+        void pause()
+        return
+      }
+
+      restoreConfiguredVolume()
+      const shouldResume = shouldResumeAfterDuck && event.shouldResume
+      shouldResumeAfterDuck = false
+      if (shouldResume) play()
+    })
+    isInitialized = true
+    return
+  }
   TrackPlayer.addEventListener(TPEvent.RemotePlay, () => {
     // console.log('remote-play')
     markTimeoutExitInteraction()
@@ -107,6 +129,11 @@ const registerPlaybackService = async() => {
 export default () => {
   if (global.lx.playerStatus.isRegisteredService) return
   console.log('handle registerPlaybackService...')
+  if (shouldUsePCMPlayerEngine()) {
+    void registerPlaybackService()
+    global.lx.playerStatus.isRegisteredService = true
+    return
+  }
   TrackPlayer.registerPlaybackService(() => registerPlaybackService)
   global.lx.playerStatus.isRegisteredService = true
 }

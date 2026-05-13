@@ -6,7 +6,17 @@ import { existsFile, moveFile, privateStorageDirectoryPath, temporaryDirectoryPa
 import { toast } from '@/utils/tools'
 import { NativeModules, Platform } from 'react-native'
 import { getAccuratePosition, seekToTime } from './seek'
-import { onUnifiedPlayerEvent } from './engine'
+import { getUnifiedPlaybackState, onUnifiedPlayerEvent } from './engine'
+import { shouldUsePCMPlayerEngine } from './engine/platform'
+import {
+  destroyPCMPlayerCore,
+  getPCMPlayerDuration,
+  pausePCMPlayer,
+  playPCMPlayer,
+  setPCMPlayerRate,
+  setPCMPlayerVolume,
+  stopPCMPlayerCore,
+} from './pcmPlayerCore'
 // import { PlayerMusicInfo } from '@/store/modules/player/playInfo'
 
 
@@ -180,29 +190,46 @@ export const setResource = (musicInfo: LX.Player.PlayMusic, url: string, duratio
   playMusic(musicInfo, url, duration ?? 0, quality)
 }
 
-export const setPlay = async() => TrackPlayer.play()
+export const setPlay = async() => {
+  if (shouldUsePCMPlayerEngine()) return playPCMPlayer()
+  return TrackPlayer.play()
+}
 export const getPosition = async() => {
   return getAccuratePosition()
 }
 export const getDuration = async() => {
+  if (shouldUsePCMPlayerEngine()) return getPCMPlayerDuration()
   if (Platform.OS == 'ios' && typeof NativeTrackPlayerModule?.getDuration == 'function') {
     return NativeTrackPlayerModule.getDuration()
   }
   return TrackPlayer.getDuration()
 }
 export const setStop = async() => {
+  if (shouldUsePCMPlayerEngine()) {
+    await stopPCMPlayerCore()
+    return
+  }
   await TrackPlayer.stop()
   if (Platform.OS != 'ios' && !isEmpty()) await TrackPlayer.skipToNext()
 }
 export const setLoop = async(loop: boolean) => TrackPlayer.setRepeatMode(loop ? RepeatMode.Off : RepeatMode.Track)
 
-export const setPause = async() => TrackPlayer.pause()
+export const setPause = async() => {
+  if (shouldUsePCMPlayerEngine()) return pausePCMPlayer()
+  return TrackPlayer.pause()
+}
 // export const skipToNext = () => TrackPlayer.skipToNext()
 export const setCurrentTime = async(time: number) => {
   return seekToTime(time)
 }
-export const setVolume = async(num: number) => TrackPlayer.setVolume(num)
-export const setPlaybackRate = async(num: number) => TrackPlayer.setRate(num)
+export const setVolume = async(num: number) => {
+  if (shouldUsePCMPlayerEngine()) return setPCMPlayerVolume(num)
+  return TrackPlayer.setVolume(num)
+}
+export const setPlaybackRate = async(num: number) => {
+  if (shouldUsePCMPlayerEngine()) return setPCMPlayerRate(num)
+  return TrackPlayer.setRate(num)
+}
 export interface NowPlayingTitles {
   title?: string
   artist?: string
@@ -222,8 +249,12 @@ export const updateNowPlayingTitles = async(titles: NowPlayingTitles) => {
 
 export const resetPlay = async() => Promise.all([setPause(), setCurrentTime(0)])
 
-export const isCached = async(url: string) => TrackPlayer.isCached(url)
+export const isCached = async(url: string) => {
+  if (shouldUsePCMPlayerEngine()) return false
+  return TrackPlayer.isCached(url)
+}
 export const getCacheSize = async() => {
+  if (shouldUsePCMPlayerEngine()) return 0
   if (Platform.OS == 'ios') {
     if (typeof NativeTrackPlayerModule?.getCacheSize != 'function') return 0
     return NativeTrackPlayerModule.getCacheSize()
@@ -231,6 +262,7 @@ export const getCacheSize = async() => {
   return TrackPlayer.getCacheSize()
 }
 export const clearCache = async() => {
+  if (shouldUsePCMPlayerEngine()) return
   if (Platform.OS == 'ios') {
     if (typeof NativeTrackPlayerModule?.clearCache != 'function') return
     return NativeTrackPlayerModule.clearCache()
@@ -254,7 +286,8 @@ export const migratePlayerCache = async() => {
 export const destroy = async() => {
   if (global.lx.playerStatus.isIniting || !global.lx.playerStatus.isInitialized) return
   try {
-    await destroyTrackPlayerCore()
+    if (shouldUsePCMPlayerEngine()) await destroyPCMPlayerCore()
+    else await destroyTrackPlayerCore()
   } finally {
     global.lx.playerStatus.isInitialized = false
   }
@@ -296,32 +329,58 @@ export const onStateChange = async(listener: (state: PlayStatus) => void) => {
         break
     }
   })
-  void TrackPlayer.getState().then((state) => {
-    switch (state) {
-      case State.Ready:
-        listener('Ready')
-        break
-      case State.Playing:
-        listener('Playing')
-        break
-      case State.Paused:
-        listener('Paused')
-        break
-      case State.Stopped:
-        listener('Stopped')
-        break
-      case State.Buffering:
-        listener('Buffering')
-        break
-      case State.Connecting:
-        listener('Connecting')
-        break
-      case State.None:
-      default:
-        listener('None')
-        break
-    }
-  }).catch(() => {})
+  if (shouldUsePCMPlayerEngine()) {
+    void getUnifiedPlaybackState().then((state) => {
+      switch (state) {
+        case 'loading':
+          listener('Connecting')
+          break
+        case 'buffering':
+          listener('Buffering')
+          break
+        case 'playing':
+          listener('Playing')
+          break
+        case 'paused':
+          listener('Paused')
+          break
+        case 'stopped':
+          listener('Stopped')
+          break
+        case 'idle':
+        default:
+          listener('None')
+          break
+      }
+    }).catch(() => {})
+  } else {
+    void TrackPlayer.getState().then((state) => {
+      switch (state) {
+        case State.Ready:
+          listener('Ready')
+          break
+        case State.Playing:
+          listener('Playing')
+          break
+        case State.Paused:
+          listener('Paused')
+          break
+        case State.Stopped:
+          listener('Stopped')
+          break
+        case State.Buffering:
+          listener('Buffering')
+          break
+        case State.Connecting:
+          listener('Connecting')
+          break
+        case State.None:
+        default:
+          listener('None')
+          break
+      }
+    }).catch(() => {})
+  }
 
   return () => {
     removeUnifiedListener()
@@ -387,6 +446,7 @@ const defaultUpdateOptions = Platform.OS == 'ios'
     }
 
 export const updateOptions = async(options = defaultUpdateOptions) => {
+  if (shouldUsePCMPlayerEngine()) return
   return TrackPlayer.updateOptions(options)
 }
 

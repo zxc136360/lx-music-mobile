@@ -128,9 +128,14 @@ public class RNTrackPlayer: RCTEventEmitter {
         to: `    @objc(seekTo:resolver:rejecter:)
     public func seek(to time: Double, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         print("Seeking to \\(time) seconds")
+        if let pendingResolve = pendingSeekResolve {
+            pendingSeekResolve = nil
+            pendingSeekTarget = nil
+            pendingResolve(player.currentTime)
+        }
+        pendingSeekResolve = resolve
+        pendingSeekTarget = time
         player.seek(to: time)
-        postLifecycleEvent("seek", position: time)
-        resolve(NSNull())
     }
 `,
       },
@@ -865,13 +870,14 @@ const findFile = async(dirPath, fileName) => {
   return matchedPath
 }
 
-const patchFileByRegex = async({ filePath, pattern, replacement }) => {
+const patchFileByRegex = async({ filePath, pattern, replacement, skipIfIncludes }) => {
   const resolvedPath = path.join(rootPath, filePath)
   console.log(`Patching ${filePath}`)
 
   const file = await fs.promises.readFile(resolvedPath, 'utf8')
   const eol = file.includes('\r\n') ? '\r\n' : '\n'
   const normalizedFile = file.replace(/\r\n/g, '\n')
+  if (skipIfIncludes && normalizedFile.includes(skipIfIncludes)) return
   if (normalizedFile.includes(replacement.trim())) return
   const nextFile = normalizedFile.replace(pattern, replacement)
 
@@ -930,11 +936,12 @@ const patchSwiftAudioSeek = async() => {
                 if finished && !currentTime.isNaN && abs(currentTime - seconds) > 0.2 {
                     performSeek { [weak self] retryFinished in
                         guard let self = self else { return }
-                        self.delegate?.AVWrapper(seekTo: Double(seconds), didFinish: retryFinished)
+                        let retryTime = self.avPlayer.currentTime().seconds
+                        self.delegate?.AVWrapper(seekTo: retryTime.isNaN ? Double(seconds) : retryTime, didFinish: retryFinished)
                     }
                     return
                 }
-                self.delegate?.AVWrapper(seekTo: Double(seconds), didFinish: finished)
+                self.delegate?.AVWrapper(seekTo: currentTime.isNaN ? Double(seconds) : currentTime, didFinish: finished)
             }
         }
     }
@@ -1046,6 +1053,8 @@ const patchTrackPlayerLifecycleSync = async() => {
     pattern: /private weak var soundEffectPlayerItem: AVPlayerItem\?\n/,
     replacement: `private weak var soundEffectPlayerItem: AVPlayerItem?
     private var lifecycleSyncTimer: Timer?
+    private var pendingSeekResolve: RCTPromiseResolveBlock?
+    private var pendingSeekTarget: Double?
 `,
   })
 
@@ -1154,6 +1163,35 @@ const patchTrackPlayerLifecycleSync = async() => {
     replacement: `func handleAudioPlayerQueueIndexChange(previousIndex: Int?, nextIndex: Int?) {
         refreshSoundEffectAudioMixOnMainThread()
         refreshLifecycleSyncTimerOnMainThread()`,
+  })
+
+  await patchFileByRegex({
+    filePath,
+    pattern: /player\.event\.queueIndex\.addListener\(self, handleAudioPlayerQueueIndexChange\)\n/,
+    replacement: `player.event.queueIndex.addListener(self, handleAudioPlayerQueueIndexChange)
+        player.event.seek.addListener(self, handleAudioPlayerSeek)
+`,
+  })
+
+  await patchFileByRegex({
+    filePath,
+    pattern: /(\n\s{4}func handleAudioPlayerQueueIndexChange\(previousIndex: Int\?, nextIndex: Int\?\) \{[\s\S]*?\n\s{8}sendEvent\(withName: "playback-track-changed", body: dictionary\)\n\s{4}\}\n)(\})/,
+    replacement: `$1
+    func handleAudioPlayerSeek(data: AudioPlayer.SeekEventData) {
+        let currentTime = player.currentTime
+        let position = currentTime.isFinite ? currentTime : data.seconds
+        postLifecycleEvent("seek", position: position, extra: [
+            "targetPosition": pendingSeekTarget ?? data.seconds,
+            "didFinish": data.didFinish,
+        ])
+
+        guard let resolve = pendingSeekResolve else { return }
+        pendingSeekResolve = nil
+        pendingSeekTarget = nil
+        resolve(position)
+    }
+$2`,
+    skipIfIncludes: 'func handleAudioPlayerSeek(data: AudioPlayer.SeekEventData)',
   })
 }
 

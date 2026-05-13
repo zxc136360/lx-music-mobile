@@ -2,7 +2,10 @@ import TrackPlayer, { State } from 'react-native-track-player'
 import { updateOptions, setVolume, setPlaybackRate, migratePlayerCache, destroy as destroyPlayer, getPosition } from './utils'
 import { getCurrentTrack, restoreTrack, updateDisplayMetaData, updateMetaDataImmediately } from './playList'
 import { soundEffectController } from './soundEffect'
+import { shouldUsePCMPlayerEngine } from './engine/platform'
+import { setupPCMPlayerCore } from './pcmPlayerCore'
 import settingState from '@/store/setting/state'
+import playerState from '@/store/player/state'
 
 // const listenEvent = () => {
 //   TrackPlayer.addEventListener('playback-error', err => {
@@ -30,17 +33,21 @@ const initial = async({ volume, playRate, cacheSize, isHandleAudioFocus, isEnabl
   global.lx.playerStatus.isIniting = true
   console.log('Cache Size', cacheSize * 1024)
   await migratePlayerCache()
-  await TrackPlayer.setupPlayer({
-    maxCacheSize: cacheSize * 1024,
-    maxBuffer: 1000,
-    waitForBuffer: true,
-    handleAudioFocus: isHandleAudioFocus,
-    audioOffload: isEnableAudioOffload,
-    autoUpdateMetadata: false,
-  })
+  if (shouldUsePCMPlayerEngine()) {
+    await setupPCMPlayerCore({ volume, playRate, cacheSize, isHandleAudioFocus, isEnableAudioOffload })
+  } else {
+    await TrackPlayer.setupPlayer({
+      maxCacheSize: cacheSize * 1024,
+      maxBuffer: 1000,
+      waitForBuffer: true,
+      handleAudioFocus: isHandleAudioFocus,
+      audioOffload: isEnableAudioOffload,
+      autoUpdateMetadata: false,
+    })
+  }
   global.lx.playerStatus.isInitialized = true
   global.lx.playerStatus.isIniting = false
-  await updateOptions()
+  if (!shouldUsePCMPlayerEngine()) await updateOptions()
   await setVolume(volume)
   await setPlaybackRate(playRate)
   await soundEffectController.applyCurrentConfig()
@@ -66,7 +73,7 @@ const reloadConfig = async() => {
     const [track, position, currentState] = await Promise.all([
       getCurrentTrack(),
       getPosition(),
-      TrackPlayer.getState(),
+      shouldUsePCMPlayerEngine() ? Promise.resolve(playerState.isPlay ? State.Playing : State.Paused) : TrackPlayer.getState(),
     ])
     const shouldRestoreTrack = typeof track?.id == 'string' && !/\/\/default$/.test(track.id)
 

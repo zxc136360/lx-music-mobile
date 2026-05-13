@@ -1,6 +1,8 @@
 import TrackPlayer, { State } from 'react-native-track-player'
 import { UnifiedPlayerEventBus } from './EventBus'
+import { createPCMPlayerDriver } from './drivers/pcmPlayerDriver'
 import { createTrackPlayerDriver } from './drivers/trackPlayerDriver'
+import { shouldUsePCMPlayerEngine } from './platform'
 import type { UnifiedPlaybackState, UnifiedPlayerEvent } from './types'
 
 const bus = new UnifiedPlayerEventBus()
@@ -10,11 +12,13 @@ const shouldIgnoreTrackPlayerLifecycle = () => {
 }
 
 const trackPlayerDriver = createTrackPlayerDriver(bus, shouldIgnoreTrackPlayerLifecycle)
+const pcmPlayerDriver = createPCMPlayerDriver(bus)
 
 let isInitialized = false
 
 export const initUnifiedPlayerEngine = () => {
   if (isInitialized) return
+  pcmPlayerDriver.init()
   trackPlayerDriver.init()
   isInitialized = true
 }
@@ -26,6 +30,7 @@ export const onUnifiedPlayerEvent = (listener: (event: UnifiedPlayerEvent) => vo
 
 export const getUnifiedPlaybackState = async(): Promise<UnifiedPlaybackState> => {
   initUnifiedPlayerEngine()
+  if (shouldUsePCMPlayerEngine()) return pcmPlayerDriver.getState()
   const state = await TrackPlayer.getState().catch(() => State.None)
   switch (state) {
     case State.Playing:

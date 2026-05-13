@@ -56,11 +56,12 @@ def lx_patch_swift_audio_seek(installer)
                 if finished && !currentTime.isNaN && abs(currentTime - seconds) > 0.2 {
                     performSeek { [weak self] retryFinished in
                         guard let self = self else { return }
-                        self.delegate?.AVWrapper(seekTo: Double(seconds), didFinish: retryFinished)
+                        let retryTime = self.avPlayer.currentTime().seconds
+                        self.delegate?.AVWrapper(seekTo: retryTime.isNaN ? Double(seconds) : retryTime, didFinish: retryFinished)
                     }
                     return
                 }
-                self.delegate?.AVWrapper(seekTo: Double(seconds), didFinish: finished)
+                self.delegate?.AVWrapper(seekTo: currentTime.isNaN ? Double(seconds) : currentTime, didFinish: finished)
             }
         }
     }
@@ -115,6 +116,8 @@ end
 
 target 'LxMusicMobile' do
   config = use_native_modules!
+
+  pod 'FFmpeg-iOS'
 
   use_react_native!(
     :path => config[:reactNativePath],
