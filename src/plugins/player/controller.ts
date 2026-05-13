@@ -1,16 +1,10 @@
-import { Platform } from 'react-native'
-import BackgroundTimer from 'react-native-background-timer'
 import { updateMetaDataImmediately } from './playList'
 import { initUnifiedPlayerEngine, onUnifiedPlayerEvent } from './engine'
 import { clearPCMPlaybackTrack } from './pcmPlayerCore'
-import { getPosition, isEmpty, setStop, setVolume } from './utils'
+import { isTempId } from './utils'
 import { exitApp } from '@/core/common'
-import { setNowPlayTime } from '@/core/player/progress'
-import { playNext, setMusicUrl } from '@/core/player/player'
-import { setStatusText } from '@/core/player/playStatus'
-import { isActive } from '@/utils/tools'
 import playerState from '@/store/player/state'
-import settingState from '@/store/setting/state'
+import type { UnifiedPlayerEvent } from './engine/types'
 
 let isInitialized = false
 
@@ -23,108 +17,64 @@ export const initUnifiedPlayerController = () => {
   if (isInitialized) return
   initUnifiedPlayerEngine()
 
-  let retryNum = 0
-  let prevTimeoutId: string | null = null
-  let loadingTimeout: number | null = null
-  let delayNextTimeout: number | null = null
+  let pendingEvents: UnifiedPlayerEvent[] = []
+  let pendingFlushTimeout: ReturnType<typeof setTimeout> | null = null
 
-  const clearLoadingTimeout = () => {
-    if (!loadingTimeout) return
-    BackgroundTimer.clearTimeout(loadingTimeout)
-    loadingTimeout = null
+  const clearPendingFlushTimeout = () => {
+    if (!pendingFlushTimeout) return
+    clearTimeout(pendingFlushTimeout)
+    pendingFlushTimeout = null
   }
 
-  const startLoadingTimeout = () => {
-    clearLoadingTimeout()
-    loadingTimeout = BackgroundTimer.setTimeout(() => {
-      if (prevTimeoutId == playerState.musicInfo.id) {
-        prevTimeoutId = null
-        void playNext(true)
-      } else {
-        prevTimeoutId = playerState.musicInfo.id
-        const currentMusicInfo = playerState.playMusicInfo.musicInfo
-        if (currentMusicInfo) setMusicUrl(currentMusicInfo, true)
-      }
-    }, 25000)
+  const clearPendingEvents = () => {
+    clearPendingFlushTimeout()
+    pendingEvents = []
   }
 
-  const clearDelayNextTimeout = () => {
-    if (!delayNextTimeout) return
-    BackgroundTimer.clearTimeout(delayNextTimeout)
-    delayNextTimeout = null
+  const queuePendingEvent = (event: UnifiedPlayerEvent) => {
+    pendingEvents.push(event)
+    if (pendingEvents.length > 8) pendingEvents.shift()
+    if (pendingFlushTimeout) return
+    pendingFlushTimeout = setTimeout(() => {
+      pendingFlushTimeout = null
+      void flushPendingEvents()
+    }, 50)
   }
 
-  const addDelayNextTimeout = () => {
-    clearDelayNextTimeout()
-    delayNextTimeout = BackgroundTimer.setTimeout(() => {
-      if (global.lx.isPlayedStop) {
-        setStatusText('')
-        return
-      }
-      void playNext(true)
-    }, 5000)
-  }
-
-  const resetRecoveryState = () => {
-    retryNum = 0
-    prevTimeoutId = null
-    clearDelayNextTimeout()
-    clearLoadingTimeout()
-  }
-
-  const handleControllerError = () => {
-    if (!playerState.musicInfo.id) return
-    clearLoadingTimeout()
-    if (global.lx.isPlayedStop) return
-    if (playerState.playMusicInfo.musicInfo && retryNum < 2) {
-      const musicInfo = playerState.playMusicInfo.musicInfo
-      void getPosition().then((position) => {
-        if (position) setNowPlayTime(position)
-      }).finally(() => {
-        if (playerState.playMusicInfo.musicInfo !== musicInfo) return
-        retryNum++
-        setMusicUrl(musicInfo, true)
-        setStatusText(global.i18n.t('player__refresh_url'))
-      })
+  const flushPendingEvents = async() => {
+    if (global.lx.gettingUrlId) {
+      pendingFlushTimeout = setTimeout(() => {
+        pendingFlushTimeout = null
+        void flushPendingEvents()
+      }, 50)
       return
     }
-    if (!isEmpty()) void setStop()
-    if (isActive()) {
-      setStatusText(global.i18n.t('player__error'))
-      setTimeout(addDelayNextTimeout)
-    } else {
-      void playNext(true)
+    const events = pendingEvents
+    pendingEvents = []
+    for (const event of events) {
+      await handleEvent(event)
     }
   }
 
-  onUnifiedPlayerEvent(async(event) => {
-    if (
-      global.lx.gettingUrlId ||
-      (isEmpty(global.lx.playerTrackId) && /\/\/default\/\/restorePlay$/.test(global.lx.playerTrackId))
-    ) return
+  const handleEvent = async(event: UnifiedPlayerEvent) => {
+    if (event.type == 'trackChanged') global.lx.playerTrackId = event.trackId
+    if (global.lx.gettingUrlId) {
+      queuePendingEvent(event)
+      return
+    }
+    if (isTempId()) return
     switch (event.type) {
       case 'state':
         switch (event.state) {
           case 'loading':
-            if (!global.lx.isPlayedStop && playerState.musicInfo.id) startLoadingTimeout()
             global.app_event.playerLoadstart()
-            setStatusText(global.i18n.t('player__loading'))
             break
           case 'buffering':
-            if (!global.lx.isPlayedStop && playerState.musicInfo.id) startLoadingTimeout()
             global.app_event.pause()
             global.app_event.playerWaiting()
-            setStatusText(global.i18n.t('player__buffering'))
             break
           case 'playing':
-            clearLoadingTimeout()
-            setStatusText('')
-            if (Platform.OS == 'ios') {
-              void setVolume(settingState.setting['player.volume'])
-            }
-            if (Platform.OS == 'ios' && playerState.musicInfo.id) {
-              // Refresh duration/elapsed metadata after playback actually starts so the
-              // iOS lockscreen can render an active progress bar.
+            if (playerState.musicInfo.id) {
               void updateMetaDataImmediately(playerState.musicInfo, true, playerState.lastLyric)
             }
             global.app_event.playerPlaying()
@@ -134,7 +84,6 @@ export const initUnifiedPlayerController = () => {
           // fallthrough
           case 'stopped':
           case 'idle':
-            clearLoadingTimeout()
             global.app_event.playerPause()
             global.app_event.pause()
             break
@@ -142,15 +91,13 @@ export const initUnifiedPlayerController = () => {
         if (global.lx.isPlayedStop) void handleExitApp('Timeout Exit')
         break
       case 'error':
+        console.log('playback-error', event.error)
         global.app_event.error()
         global.app_event.playerError()
-        handleControllerError()
         break
       case 'trackChanged':
-        global.lx.playerTrackId = event.trackId
         if (event.info?.track == null) return
         if (global.lx.isPlayedStop) return handleExitApp('Timeout Exit')
-        void setVolume(settingState.setting['player.volume'])
         break
       case 'ended':
         clearPCMPlaybackTrack()
@@ -158,12 +105,14 @@ export const initUnifiedPlayerController = () => {
         global.app_event.pause()
         global.app_event.playerEnded()
         global.app_event.playerEmptied()
-        clearDelayNextTimeout()
-        clearLoadingTimeout()
         break
     }
+  }
+
+  onUnifiedPlayerEvent((event) => {
+    void handleEvent(event)
   })
 
-  global.app_event.on('musicToggled', resetRecoveryState)
+  global.app_event.on('musicToggled', clearPendingEvents)
   isInitialized = true
 }
