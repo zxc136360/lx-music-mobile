@@ -10,7 +10,7 @@ const defaultUserAgent = 'Mozilla/5.0 (Linux; Android 10; Pixel 3) AppleWebKit/5
 const httpRxp = /^(https?:\/\/.+|\/.+)/
 const wait = async(ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-export const trackPlayerState = {
+export const playbackState = {
   isPlaying: false,
   prevDuration: -1,
 }
@@ -121,8 +121,8 @@ export const getTrackDuration = async() => {
 
 export const clearTracks = () => {
   list.length = 0
-  trackPlayerState.isPlaying = false
-  trackPlayerState.prevDuration = -1
+  playbackState.isPlaying = false
+  playbackState.prevDuration = -1
 }
 
 export const updateCurrentTrackMetadata = async(metadata: {
@@ -182,7 +182,7 @@ export const ensureCurrentTrackMetadata = (metadata: {
     }
   })()
 }
-export const destroyTrackPlayerCore = async() => {
+export const destroyPlaybackCore = async() => {
   await clearNowPlayingInfo().catch(() => {})
   clearTracks()
 }

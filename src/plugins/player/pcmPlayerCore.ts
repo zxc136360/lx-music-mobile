@@ -17,7 +17,7 @@ import {
   buildTracks,
   clearTracks,
   ensureCurrentTrackMetadata,
-} from './trackPlayerCore'
+} from './playbackCore'
 
 const list: LX.Player.Track[] = []
 let currentTrack: LX.Player.Track | null = null

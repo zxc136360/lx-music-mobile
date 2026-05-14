@@ -2,7 +2,6 @@
 // import { useProgress } from '@/plugins/player/utils'
 // import { formatPlayTime2 } from '@/utils'
 // // import { useGetter } from '@/store'
-// // import { STATE_PLAYING, STATE_BUFFERING } from 'react-native-track-player'
 
 // export default () => {
 //   const { position, buffered, duration } = useProgress(250)

@@ -1,4 +1,4 @@
-import { ensureCurrentTrackMetadata } from '../trackPlayerCore'
+import { ensureCurrentTrackMetadata } from '../playbackCore'
 import { getCurrentPCMTrack, loadPCMPlaybackResource } from '../pcmPlayerCore'
 
 const resolveShouldAutoStart = (hasCurrentTrack: boolean) => {

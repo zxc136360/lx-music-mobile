@@ -1,7 +1,5 @@
 import BackgroundTimer from 'react-native-background-timer'
 import { playMusic as handlePlayMusic } from './playList'
-import { existsFile, moveFile, privateStorageDirectoryPath, temporaryDirectoryPath } from '@/utils/fs'
-import { toast } from '@/utils/tools'
 import { getAccuratePosition, getPlayerDuration, seekToTime } from './seek'
 import { getUnifiedPlaybackState, onUnifiedPlayerEvent } from './engine'
 import {
@@ -26,13 +24,6 @@ export const isEmpty = (trackId = global.lx.playerTrackId) => {
 export const isTempId = (trackId = global.lx.playerTrackId) => {
   return !trackId || tempIdRxp.test(trackId)
 }
-
-// export const replacePlayTrack = async(newTrack, oldTrack) => {
-//   console.log('replaceTrack')
-//   await TrackPlayer.add(newTrack)
-//   await TrackPlayer.skip(newTrack.id)
-//   await TrackPlayer.remove(oldTrack.id)
-// }
 
 // let timeout
 // let isFirstPlay = true
@@ -180,7 +171,6 @@ export const setStop = async() => {
 export const setLoop = async(_loop: boolean) => {}
 
 export const setPause = async() => pausePCMPlayer()
-// export const skipToNext = () => TrackPlayer.skipToNext()
 export const setCurrentTime = async(time: number) => {
   return seekToTime(time)
 }
@@ -202,19 +192,6 @@ export const resetPlay = async() => Promise.all([setPause(), setCurrentTime(0)])
 export const isCached = async(_url: string) => false
 export const getCacheSize = async() => 0
 export const clearCache = async() => {}
-export const migratePlayerCache = async() => {
-  const newCachePath = temporaryDirectoryPath + '/TrackPlayer'
-  if (await existsFile(newCachePath)) return
-  const oldCachePath = privateStorageDirectoryPath + '/TrackPlayer'
-  if (!await existsFile(oldCachePath)) return
-  let timeout: number | null = BackgroundTimer.setTimeout(() => {
-    timeout = null
-    toast(global.i18n.t('player_cache_migrating'), 'long')
-  }, 2_000)
-  await moveFile(oldCachePath, newCachePath).finally(() => {
-    if (timeout) BackgroundTimer.clearTimeout(timeout)
-  })
-}
 
 export const destroy = async() => {
   if (global.lx.playerStatus.isIniting || !global.lx.playerStatus.isInitialized) return
@@ -295,30 +272,7 @@ export const onStateChange = async(listener: (state: PlayStatus) => void) => {
  * @param options state change event
  * @returns remove event function
  */
-// export const playState = callback => TrackPlayer.addEventListener('playback-state', callback)
-
 export const updateOptions = async(_options = {}) => {}
-
-// export const setMaxCache = async size => {
-//   // const currentTrack = await TrackPlayer.getCurrentTrack()
-//   // if (!currentTrack) return
-//   // console.log(currentTrack)
-//   // const currentTime = await TrackPlayer.getPosition()
-//   // const state = await TrackPlayer.getState()
-//   // await stop()
-//   // await TrackPlayer.destroy()
-//   // await TrackPlayer.setupPlayer({ maxCacheSize: size * 1024, maxBuffer: 1000, waitForBuffer: true })
-//   // await updateOptions()
-//   // await TrackPlayer.seekTo(currentTime)
-//   // switch (state) {
-//   //   case TrackPlayer.STATE_PLAYING:
-//   //   case TrackPlayer.STATE_BUFFERING:
-//   //     await TrackPlayer.play()
-//   //     break
-//   //   default:
-//   //     break
-//   // }
-// }
 
 // export {
 //   useProgress,

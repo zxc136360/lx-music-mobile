@@ -8,10 +8,10 @@ import {
   formatNowPlayingTitleLine,
   getCurrentFullLyric,
   getTrackDuration,
-  trackPlayerState as state,
+  playbackState as state,
   updateCurrentTrackMetadata,
   updateNowPlayingDisplayMetadata,
-} from './trackPlayerCore'
+} from './playbackCore'
 import { loadPlaybackResource } from './engine/resourceLoader'
 import {
   getCurrentPCMTrack,

@@ -434,11 +434,6 @@ static NSArray<NSString *> *LXCacheDirectories(void) {
   return paths;
 }
 
-static BOOL LXShouldSkipManagedCacheEntry(NSString *relativePath) {
-  if (!relativePath.length) return NO;
-  return [relativePath isEqualToString:@"TrackPlayer"] || [relativePath hasPrefix:@"TrackPlayer/"];
-}
-
 static unsigned long long LXDirectorySize(NSString *directoryPath) {
   if (!directoryPath.length) return 0;
 
@@ -449,10 +444,6 @@ static unsigned long long LXDirectorySize(NSString *directoryPath) {
   unsigned long long total = 0;
   NSDirectoryEnumerator *enumerator = [fileManager enumeratorAtPath:directoryPath];
   for (NSString *itemPath in enumerator) {
-    if (LXShouldSkipManagedCacheEntry(itemPath)) {
-      [enumerator skipDescendants];
-      continue;
-    }
     NSString *fullPath = [directoryPath stringByAppendingPathComponent:itemPath];
     NSDictionary *attributes = [fileManager attributesOfItemAtPath:fullPath error:nil];
     if ([attributes[NSFileType] isEqualToString:NSFileTypeDirectory]) continue;
@@ -469,7 +460,6 @@ static BOOL LXClearDirectoryContents(NSString *directoryPath, NSError **error) {
   if (contents == nil) return NO;
 
   for (NSString *name in contents) {
-    if (LXShouldSkipManagedCacheEntry(name)) continue;
     NSString *fullPath = [directoryPath stringByAppendingPathComponent:name];
     if (![fileManager removeItemAtPath:fullPath error:error]) return NO;
   }
@@ -482,8 +472,6 @@ static NSString *LXNowPlayingArtworkPath = nil;
 static NSUInteger LXNowPlayingArtworkRequestId = 0;
 static MPNowPlayingPlaybackState LXNowPlayingState = MPNowPlayingPlaybackStateStopped;
 static BOOL LXIsReceivingRemoteControlEvents = NO;
-static NSString * const LXTrackPlayerLifecycleNotificationName = @"LXTrackPlayerLifecycle";
-static id LXTrackPlayerLifecycleObserver = nil;
 static NSString * const LXRemoteCommandNotificationName = @"LXRemoteCommand";
 static BOOL LXRemoteCommandHandlersInstalled = NO;
 
@@ -657,20 +645,8 @@ static NSNumber *LXDefaultNowPlayingRate(void) {
   }
 }
 
-static NSNumber *LXCurrentNowPlayingRate(void) {
-  NSNumber *rate = [LXNowPlayingInfoCache[MPNowPlayingInfoPropertyPlaybackRate] isKindOfClass:[NSNumber class]] ? LXNowPlayingInfoCache[MPNowPlayingInfoPropertyPlaybackRate] : nil;
-  return rate ?: LXDefaultNowPlayingRate();
-}
-
 static NSNumber *LXNowPlayingDefaultPlaybackRateValue(void) {
   return @1;
-}
-
-static MPNowPlayingPlaybackState LXNowPlayingPlaybackStateFromLifecycleState(NSString *state) {
-  if ([state isEqualToString:@"playing"]) return MPNowPlayingPlaybackStatePlaying;
-  if ([state isEqualToString:@"paused"] || [state isEqualToString:@"ready"]) return MPNowPlayingPlaybackStatePaused;
-  if ([state isEqualToString:@"stopped"] || [state isEqualToString:@"idle"]) return MPNowPlayingPlaybackStateStopped;
-  return LXNowPlayingState;
 }
 
 static void LXSetNowPlayingPlaybackState(MPNowPlayingPlaybackState state, NSDictionary *options) {
@@ -696,58 +672,6 @@ static void LXClearNowPlayingInfo(void) {
   LXNowPlayingInfoCache = nil;
   LXNowPlayingState = MPNowPlayingPlaybackStateStopped;
   LXApplyNowPlayingInfo();
-}
-
-static void LXHandleTrackPlayerLifecycleNotification(NSNotification *notification) {
-  NSDictionary *userInfo = [notification.userInfo isKindOfClass:[NSDictionary class]] ? notification.userInfo : @{};
-  NSString *event = [userInfo[@"event"] isKindOfClass:[NSString class]] ? userInfo[@"event"] : @"";
-  NSString *stateName = [userInfo[@"state"] isKindOfClass:[NSString class]] ? userInfo[@"state"] : @"";
-  NSNumber *position = [userInfo[@"position"] isKindOfClass:[NSNumber class]] ? userInfo[@"position"] : nil;
-  NSNumber *duration = [userInfo[@"duration"] isKindOfClass:[NSNumber class]] ? userInfo[@"duration"] : nil;
-  NSNumber *rate = [userInfo[@"rate"] isKindOfClass:[NSNumber class]] ? userInfo[@"rate"] : nil;
-
-  if ([event isEqualToString:@"destroy"] || [event isEqualToString:@"reset"]) {
-    LXClearNowPlayingInfo();
-    return;
-  }
-
-  if (LXNowPlayingInfoCache.count == 0) return;
-
-  if (duration != nil && duration.doubleValue > 0) {
-    LXNowPlayingMutableInfo()[MPMediaItemPropertyPlaybackDuration] = duration;
-  }
-
-  if ([event isEqualToString:@"seek"]) {
-    LXSetNowPlayingPlaybackState(LXNowPlayingState, @{
-      @"elapsedTime": position ?: @0,
-      @"playbackRate": LXCurrentNowPlayingRate(),
-    });
-    return;
-  }
-
-  if ([event isEqualToString:@"state"]) {
-    // JS handles real stops explicitly; TrackPlayer also emits idle while swapping tracks.
-    if ([stateName isEqualToString:@"stopped"] || [stateName isEqualToString:@"idle"]) return;
-
-    MPNowPlayingPlaybackState playbackState = LXNowPlayingPlaybackStateFromLifecycleState(stateName);
-    NSNumber *playbackRate = nil;
-    if (playbackState == MPNowPlayingPlaybackStatePlaying) playbackRate = rate ?: @1;
-    else if (playbackState == MPNowPlayingPlaybackStatePaused || playbackState == MPNowPlayingPlaybackStateStopped) playbackRate = @0;
-    else if (rate != nil) playbackRate = rate;
-
-    NSMutableDictionary *options = [NSMutableDictionary dictionary];
-    if (position != nil) options[@"elapsedTime"] = position;
-    if (playbackRate != nil) options[@"playbackRate"] = playbackRate;
-    LXSetNowPlayingPlaybackState(playbackState, options);
-    return;
-  }
-}
-
-static void LXRegisterTrackPlayerLifecycleObserver(void) {
-  if (LXTrackPlayerLifecycleObserver != nil) return;
-  LXTrackPlayerLifecycleObserver = [[NSNotificationCenter defaultCenter] addObserverForName:LXTrackPlayerLifecycleNotificationName object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification * _Nonnull note) {
-    LXHandleTrackPlayerLifecycleNotification(note);
-  }];
 }
 
 static void LXSetNowPlayingInfo(NSDictionary *metadata) {
@@ -1928,7 +1852,6 @@ RCT_REMAP_METHOD(sha1, sha1:(NSString *)input resolver:(RCTPromiseResolveBlock)r
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
-  LXRegisterTrackPlayerLifecycleObserver();
   RCTBridge *bridge = [[RCTBridge alloc] initWithDelegate:self launchOptions:launchOptions];
   [ReactNativeNavigation bootstrapWithBridge:bridge];
   self.initialProps = @{};
