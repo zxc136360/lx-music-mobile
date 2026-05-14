@@ -50,6 +50,16 @@ export type PCMPlayerEvent =
     duration?: number
   }
   | {
+    type: 'log'
+    driver: 'pcmPlayer'
+    level?: 'info' | 'warn' | 'error'
+    message?: string
+    details?: any
+    trackId?: string
+    position?: number
+    duration?: number
+  }
+  | {
     type: 'interruption'
     driver: 'pcmPlayer'
     state: 'began' | 'ended'

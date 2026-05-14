@@ -3,6 +3,7 @@ import {
   isPCMPlayerSupported,
   onPCMPlayerEvent,
 } from '@/utils/nativeModules/pcmPlayer'
+import { log } from '@/utils/log'
 import type { UnifiedPlaybackState } from '../types'
 import type { UnifiedPlayerEventBus } from '../EventBus'
 
@@ -49,6 +50,12 @@ export const createPCMPlayerDriver = (bus: UnifiedPlayerEventBus) => {
           })
           break
         case 'seek':
+          break
+        case 'log':
+          log[event.level == 'error' ? 'error' : event.level == 'warn' ? 'warn' : 'info'](
+            `[player] ${event.message ?? 'pcm player log'}:`,
+            event.details ?? {},
+          )
           break
         case 'interruption':
           bus.emit({

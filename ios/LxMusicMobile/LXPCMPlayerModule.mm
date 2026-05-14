@@ -67,6 +67,12 @@ static double LXPCMClampDouble(double value, double minValue, double maxValue) {
 @property (nonatomic, assign) BOOL hasPendingSeek;
 @property (nonatomic, assign) BOOL isApplyingSeek;
 @property (nonatomic, assign) double pendingSeekPosition;
+@property (nonatomic, assign) NSUInteger pendingSeekId;
+@property (nonatomic, assign) CFTimeInterval pendingSeekRequestedAt;
+@property (nonatomic, assign) BOOL hasSeekReadyLog;
+@property (nonatomic, assign) NSUInteger seekReadyLogId;
+@property (nonatomic, assign) CFTimeInterval seekReadyLogRequestedAt;
+@property (nonatomic, assign) double seekReadyLogPosition;
 @property (nonatomic, assign) double duration;
 @property (nonatomic, assign) double positionBase;
 @property (nonatomic, assign) CFTimeInterval positionBaseTime;
@@ -79,7 +85,7 @@ static double LXPCMClampDouble(double value, double minValue, double maxValue) {
 @property (nonatomic, assign) NSUInteger scheduleGeneration;
 @property (nonatomic, assign) BOOL wasPlayingBeforeInterruption;
 - (BOOL)shouldInterruptDecodeForGeneration:(NSUInteger)generation;
-- (BOOL)consumePendingSeekForGeneration:(NSUInteger)generation position:(double *)position;
+- (BOOL)consumePendingSeekForGeneration:(NSUInteger)generation position:(double *)position seekId:(NSUInteger *)seekId requestedAt:(CFTimeInterval *)requestedAt;
 - (void)stopPlayerNodeSynchronously;
 @end
 
@@ -196,6 +202,14 @@ RCT_EXPORT_MODULE();
 - (void)emitError:(NSString *)message {
   NSMutableDictionary *body = [[self baseEventBodyWithType:@"error"] mutableCopy];
   body[@"error"] = message ?: @"PCM player error";
+  [self emitEvent:body];
+}
+
+- (void)emitLog:(NSString *)level message:(NSString *)message details:(NSDictionary *)details {
+  NSMutableDictionary *body = [[self baseEventBodyWithType:@"log"] mutableCopy];
+  body[@"level"] = level ?: @"info";
+  body[@"message"] = message ?: @"";
+  if (details != nil) body[@"details"] = details;
   [self emitEvent:body];
 }
 
@@ -349,6 +363,12 @@ RCT_EXPORT_MODULE();
     self.hasPendingSeek = NO;
     self.isApplyingSeek = NO;
     self.pendingSeekPosition = 0;
+    self.pendingSeekId = 0;
+    self.pendingSeekRequestedAt = 0;
+    self.hasSeekReadyLog = NO;
+    self.seekReadyLogId = 0;
+    self.seekReadyLogRequestedAt = 0;
+    self.seekReadyLogPosition = 0;
     self.duration = 0;
     self.positionBase = MAX(position, 0);
     self.positionBaseTime = CACurrentMediaTime();
@@ -372,6 +392,12 @@ RCT_EXPORT_MODULE();
     self.hasPendingSeek = NO;
     self.isApplyingSeek = NO;
     self.pendingSeekPosition = 0;
+    self.pendingSeekId = 0;
+    self.pendingSeekRequestedAt = 0;
+    self.hasSeekReadyLog = NO;
+    self.seekReadyLogId = 0;
+    self.seekReadyLogRequestedAt = 0;
+    self.seekReadyLogPosition = 0;
     self.duration = 0;
     self.positionBase = 0;
     self.positionBaseTime = CACurrentMediaTime();
@@ -390,14 +416,16 @@ RCT_EXPORT_MODULE();
 
 - (BOOL)shouldInterruptDecodeForGeneration:(NSUInteger)generation {
   @synchronized (self) {
-    return generation != self.generation || (self.hasPendingSeek && !self.isApplyingSeek);
+    return generation != self.generation || self.hasPendingSeek;
   }
 }
 
-- (BOOL)consumePendingSeekForGeneration:(NSUInteger)generation position:(double *)position {
+- (BOOL)consumePendingSeekForGeneration:(NSUInteger)generation position:(double *)position seekId:(NSUInteger *)seekId requestedAt:(CFTimeInterval *)requestedAt {
   @synchronized (self) {
     if (generation != self.generation || !self.hasPendingSeek) return NO;
     if (position != NULL) *position = self.pendingSeekPosition;
+    if (seekId != NULL) *seekId = self.pendingSeekId;
+    if (requestedAt != NULL) *requestedAt = self.pendingSeekRequestedAt;
     self.hasPendingSeek = NO;
     return YES;
   }
@@ -442,6 +470,29 @@ RCT_EXPORT_MODULE();
     double nextBuffered = self.positionBase + ((double)self.scheduledFrames / MAX(sampleRate, 1));
     self.bufferedPosition = self.duration > 0 ? MIN(MAX(self.bufferedPosition, nextBuffered), self.duration) : MAX(self.bufferedPosition, nextBuffered);
   }
+}
+
+- (void)markSeekAudioReadyIfNeededForGeneration:(NSUInteger)generation {
+  BOOL shouldLog = NO;
+  NSUInteger seekId = 0;
+  double position = 0;
+  CFTimeInterval requestedAt = 0;
+  @synchronized (self) {
+    if (generation != self.generation || !self.hasSeekReadyLog) return;
+    self.hasSeekReadyLog = NO;
+    shouldLog = YES;
+    seekId = self.seekReadyLogId;
+    position = self.seekReadyLogPosition;
+    requestedAt = self.seekReadyLogRequestedAt;
+  }
+  if (!shouldLog || requestedAt <= 0) return;
+  double elapsedMs = (CACurrentMediaTime() - requestedAt) * 1000;
+  if (elapsedMs <= 1000) return;
+  [self emitLog:@"warn" message:@"pcm seek audio ready slow" details:@{
+    @"seekId": @(seekId),
+    @"position": @(position),
+    @"elapsedMs": @((NSInteger)round(elapsedMs)),
+  }];
 }
 
 - (NSUInteger)currentScheduleGenerationForGeneration:(NSUInteger)generation {
@@ -537,7 +588,7 @@ RCT_EXPORT_MODULE();
   double duration = 0;
   NSString *engineErrorMessage = nil;
   BOOL shouldTrimDecodedAudio = position > 0;
-  BOOL (^seekDecodeContext)(double) = nil;
+  BOOL (^seekDecodeContext)(double, NSUInteger, CFTimeInterval) = nil;
   LXPCMInterruptContext interruptContext = { self, generation };
 
   @synchronized (self) {
@@ -671,17 +722,42 @@ RCT_EXPORT_MODULE();
 
   [self emitState:@"buffering"];
 
-  seekDecodeContext = ^BOOL(double seekPosition) {
+  seekDecodeContext = ^BOOL(double seekPosition, NSUInteger seekId, CFTimeInterval requestedAt) {
     double target = MAX(seekPosition, 0);
     int64_t seekTarget = streamStartTime + av_rescale_q((int64_t)(target * AV_TIME_BASE), AV_TIME_BASE_Q, stream->time_base);
+    CFTimeInterval seekStartedAt = CACurrentMediaTime();
     @synchronized (self) {
       if (generation == self.generation) self.isApplyingSeek = YES;
     }
     int seekResult = av_seek_frame(formatContext, streamIndex, seekTarget, AVSEEK_FLAG_BACKWARD);
+    BOOL wasSuperseded = NO;
     @synchronized (self) {
-      if (generation == self.generation) self.isApplyingSeek = NO;
+      if (generation == self.generation) {
+        self.isApplyingSeek = NO;
+        wasSuperseded = self.hasPendingSeek && self.pendingSeekId != seekId;
+      }
     }
-    if (seekResult < 0) return NO;
+    double seekElapsedMs = (CACurrentMediaTime() - seekStartedAt) * 1000;
+    if (seekResult < 0) {
+      if (wasSuperseded) {
+        return YES;
+      }
+      [self emitLog:@"error" message:@"pcm seek failed" details:@{
+        @"seekId": @(seekId),
+        @"position": @(target),
+        @"result": @(seekResult),
+        @"elapsedMs": @((NSInteger)round(seekElapsedMs)),
+      }];
+      return NO;
+    }
+    if (wasSuperseded) return YES;
+    if (seekElapsedMs > 800) {
+      [self emitLog:@"warn" message:@"pcm seek slow" details:@{
+        @"seekId": @(seekId),
+        @"position": @(target),
+        @"elapsedMs": @((NSInteger)round(seekElapsedMs)),
+      }];
+    }
     avcodec_flush_buffers(codecContext);
     if (swrContext != NULL) {
       swr_close(swrContext);
@@ -698,17 +774,23 @@ RCT_EXPORT_MODULE();
       self.bufferedPosition = target;
       self.scheduledFrames = 0;
       self.scheduleGeneration += 1;
+      self.hasSeekReadyLog = requestedAt > 0 && !wasSuperseded;
+      self.seekReadyLogId = seekId;
+      self.seekReadyLogRequestedAt = requestedAt;
+      self.seekReadyLogPosition = target;
     }
     return YES;
   };
 
   while ([self isGenerationActive:generation]) {
     double pendingSeekPosition = 0;
-    if ([self consumePendingSeekForGeneration:generation position:&pendingSeekPosition]) {
+    NSUInteger pendingSeekId = 0;
+    CFTimeInterval pendingSeekRequestedAt = 0;
+    if ([self consumePendingSeekForGeneration:generation position:&pendingSeekPosition seekId:&pendingSeekId requestedAt:&pendingSeekRequestedAt]) {
       inputEnded = NO;
       position = pendingSeekPosition;
       shouldTrimDecodedAudio = position > 0;
-      if (!seekDecodeContext(position)) {
+      if (!seekDecodeContext(position, pendingSeekId, pendingSeekRequestedAt)) {
         if (![self isGenerationActive:generation]) goto cleanup;
         finishReject(@"seek_failed", @"FFmpeg failed to seek audio stream");
         goto cleanup;
@@ -724,11 +806,11 @@ RCT_EXPORT_MODULE();
 
     result = av_read_frame(formatContext, packet);
     if (![self isGenerationActive:generation]) goto cleanup;
-    if ([self consumePendingSeekForGeneration:generation position:&pendingSeekPosition]) {
+    if ([self consumePendingSeekForGeneration:generation position:&pendingSeekPosition seekId:&pendingSeekId requestedAt:&pendingSeekRequestedAt]) {
       inputEnded = NO;
       position = pendingSeekPosition;
       shouldTrimDecodedAudio = position > 0;
-      if (!seekDecodeContext(position)) {
+      if (!seekDecodeContext(position, pendingSeekId, pendingSeekRequestedAt)) {
         if (![self isGenerationActive:generation]) goto cleanup;
         finishReject(@"seek_failed", @"FFmpeg failed to seek audio stream");
         goto cleanup;
@@ -750,11 +832,11 @@ RCT_EXPORT_MODULE();
     }
 
     while ([self isGenerationActive:generation]) {
-      if ([self consumePendingSeekForGeneration:generation position:&pendingSeekPosition]) {
+      if ([self consumePendingSeekForGeneration:generation position:&pendingSeekPosition seekId:&pendingSeekId requestedAt:&pendingSeekRequestedAt]) {
         inputEnded = NO;
         position = pendingSeekPosition;
         shouldTrimDecodedAudio = position > 0;
-        if (!seekDecodeContext(position)) {
+        if (!seekDecodeContext(position, pendingSeekId, pendingSeekRequestedAt)) {
           if (![self isGenerationActive:generation]) goto cleanup;
           finishReject(@"seek_failed", @"FFmpeg failed to seek audio stream");
           goto cleanup;
@@ -821,6 +903,7 @@ RCT_EXPORT_MODULE();
       if (![self scheduleConvertedAudio:convertedData samples:samplesToSchedule sampleOffset:sampleOffset sampleRate:sampleRate channels:outputChannels generation:generation]) {
         goto cleanup;
       }
+      [self markSeekAudioReadyIfNeededForGeneration:generation];
 
       if (needsStateAfterSeek) {
         needsStateAfterSeek = NO;
@@ -1008,19 +1091,23 @@ RCT_REMAP_METHOD(seekTo, seekTo:(double)position resolver:(RCTPromiseResolveBloc
   if (canSeekInPlace) {
     BOOL didQueueSeek = NO;
     BOOL shouldIgnoreSeek = NO;
+    double duration = 0;
     @synchronized (self) {
       if (generation != self.generation) {
         shouldIgnoreSeek = YES;
       } else if (self.isDecoding && self.isLoaded) {
         didQueueSeek = YES;
         self.hasPendingSeek = YES;
+        self.pendingSeekId += 1;
         self.pendingSeekPosition = target;
+        self.pendingSeekRequestedAt = CACurrentMediaTime();
         self.decodeEnded = NO;
         self.positionBase = target;
         self.positionBaseTime = CACurrentMediaTime();
         self.bufferedPosition = target;
         self.scheduledFrames = 0;
         self.scheduleGeneration += 1;
+        duration = self.duration;
         if (shouldResume) self.isPlaying = YES;
       }
     }
@@ -1040,9 +1127,9 @@ RCT_REMAP_METHOD(seekTo, seekTo:(double)position resolver:(RCTPromiseResolveBloc
         @"driver": @"pcmPlayer",
         @"trackId": trackId ?: @"",
         @"position": @(target),
-        @"duration": @(self.duration),
+        @"duration": @(duration),
       }];
-      [self emitState:shouldResume ? @"buffering" : @"paused"];
+      if (!shouldResume) [self emitState:@"paused"];
       resolve(@(target));
       return;
     }
