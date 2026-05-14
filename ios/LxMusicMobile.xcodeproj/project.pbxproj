@@ -10,6 +10,7 @@
 		00E356F31AD99517003FC87E /* LxMusicMobileTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 00E356F21AD99517003FC87E /* LxMusicMobileTests.m */; };
 		0C80B921A6F3F58F76C31292 /* libPods-LxMusicMobile.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-LxMusicMobile.a */; };
 		11D2C601B4A24A5E9B5B0001 /* CoreMotion.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 11D2C600B4A24A5E9B5B0001 /* CoreMotion.framework */; };
+		11D2C603B4A24A5E9B5B0001 /* MediaPlayer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 11D2C602B4A24A5E9B5B0001 /* MediaPlayer.framework */; };
 		11F1A0A6A0F340D5B1E6A001 /* icomoon.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 11F1A0A5A0F340D5B1E6A001 /* icomoon.ttf */; };
 		22D0B001A0F340D5B1E6A003 /* user-api-preload.js in Resources */ = {isa = PBXBuildFile; fileRef = 22D0B000A0F340D5B1E6A003 /* user-api-preload.js */; };
 		22D0B002A0F340D5B1E6A003 /* JavaScriptCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = ED297162215061F000B7C4FE /* JavaScriptCore.framework */; };
@@ -37,6 +38,7 @@
 		00E356F21AD99517003FC87E /* LxMusicMobileTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LxMusicMobileTests.m; sourceTree = "<group>"; };
 		11F1A0A5A0F340D5B1E6A001 /* icomoon.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = icomoon.ttf; path = LxMusicMobile/icomoon.ttf; sourceTree = "<group>"; };
 		11D2C600B4A24A5E9B5B0001 /* CoreMotion.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMotion.framework; path = System/Library/Frameworks/CoreMotion.framework; sourceTree = SDKROOT; };
+		11D2C602B4A24A5E9B5B0001 /* MediaPlayer.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MediaPlayer.framework; path = System/Library/Frameworks/MediaPlayer.framework; sourceTree = SDKROOT; };
 		22D0B000A0F340D5B1E6A003 /* user-api-preload.js */ = {isa = PBXFileReference; lastKnownFileType = text.javascript; name = "user-api-preload.js"; path = "../android/app/src/main/assets/script/user-api-preload.js"; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* LxMusicMobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LxMusicMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FAF1A68108700A75B9A /* AppDelegate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = AppDelegate.h; path = LxMusicMobile/AppDelegate.h; sourceTree = "<group>"; };
@@ -70,6 +72,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				11D2C601B4A24A5E9B5B0001 /* CoreMotion.framework in Frameworks */,
+				11D2C603B4A24A5E9B5B0001 /* MediaPlayer.framework in Frameworks */,
 				22D0B002A0F340D5B1E6A003 /* JavaScriptCore.framework in Frameworks */,
 				0C80B921A6F3F58F76C31292 /* libPods-LxMusicMobile.a in Frameworks */,
 			);
@@ -116,6 +119,7 @@
 			isa = PBXGroup;
 			children = (
 				11D2C600B4A24A5E9B5B0001 /* CoreMotion.framework */,
+				11D2C602B4A24A5E9B5B0001 /* MediaPlayer.framework */,
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
 				5DCACB8F33CDC322A6C60F78 /* libPods-LxMusicMobile.a */,
 				19F6CBCC0A4E27FBF8BF4A61 /* libPods-LxMusicMobile-LxMusicMobileTests.a */,
