@@ -5,6 +5,9 @@
 #import <React/RCTConvert.h>
 #include <errno.h>
 #include <stdint.h>
+#include <string.h>
+#include <mutex>
+#include <vector>
 
 #if __has_include(<libavformat/avformat.h>)
 #define LX_HAS_FFMPEG 1
@@ -51,12 +54,22 @@ static double LXPCMClampDouble(double value, double minValue, double maxValue) {
   return value;
 }
 
-@interface PCMPlayerModule ()
+@interface PCMPlayerModule () {
+  std::mutex _pcmRingMutex;
+  std::vector<float> _pcmRingBuffer;
+  size_t _pcmRingCapacityFrames;
+  size_t _pcmRingReadFrame;
+  size_t _pcmRingWriteFrame;
+  size_t _pcmRingAvailableFrames;
+  size_t _pcmRingChannels;
+  int _pcmRingSampleRate;
+}
 @property (nonatomic, assign) BOOL hasListeners;
 @property (nonatomic, strong) dispatch_queue_t decodeQueue;
 @property (nonatomic, strong) AVAudioEngine *engine;
-@property (nonatomic, strong) AVAudioPlayerNode *playerNode;
+@property (nonatomic, strong) AVAudioSourceNode *sourceNode;
 @property (nonatomic, strong) AVAudioUnitTimePitch *timePitchNode;
+@property (nonatomic, strong) AVAudioMixerNode *volumeMixerNode;
 @property (nonatomic, strong) AVAudioFormat *pcmFormat;
 @property (nonatomic, assign) NSUInteger generation;
 @property (nonatomic, copy) NSString *trackId;
@@ -66,6 +79,7 @@ static double LXPCMClampDouble(double value, double minValue, double maxValue) {
 @property (nonatomic, assign) BOOL isLoaded;
 @property (nonatomic, assign) BOOL isDecoding;
 @property (nonatomic, assign) BOOL decodeEnded;
+@property (nonatomic, assign) BOOL hasQueuedEndedEvent;
 @property (nonatomic, assign) BOOL hasPendingSeek;
 @property (nonatomic, assign) BOOL isApplyingSeek;
 @property (nonatomic, assign) double pendingSeekPosition;
@@ -84,11 +98,16 @@ static double LXPCMClampDouble(double value, double minValue, double maxValue) {
 @property (nonatomic, assign) int outputSampleRate;
 @property (nonatomic, assign) int outputChannels;
 @property (nonatomic, assign) int64_t scheduledFrames;
-@property (nonatomic, assign) NSUInteger scheduleGeneration;
 @property (nonatomic, assign) BOOL wasPlayingBeforeInterruption;
 - (BOOL)shouldInterruptDecodeForGeneration:(NSUInteger)generation;
 - (BOOL)consumePendingSeekForGeneration:(NSUInteger)generation position:(double *)position seekId:(NSUInteger *)seekId requestedAt:(CFTimeInterval *)requestedAt;
-- (void)stopPlayerNodeSynchronously;
+- (void)clearPCMOutputSynchronously;
+- (void)resetPCMBufferWithSampleRate:(int)sampleRate channels:(int)channels;
+- (void)clearPCMBuffer;
+- (size_t)availablePCMFrames;
+- (BOOL)appendPCMFrames:(uint8_t **)convertedData samples:(int)samples sampleOffset:(int)sampleOffset channels:(int)channels;
+- (void)renderPCMFrames:(AVAudioFrameCount)frameCount outputData:(AudioBufferList *)outputData isSilence:(BOOL *)isSilence;
+- (void)updateBufferedFramesAfterRender:(AVAudioFrameCount)frames sampleRate:(int)sampleRate generation:(NSUInteger)generation;
 @end
 
 typedef struct {
@@ -138,14 +157,20 @@ RCT_EXPORT_MODULE();
   if (self != nil) {
     _decodeQueue = dispatch_queue_create("cn.toside.music.mobile.pcm.decode", DISPATCH_QUEUE_SERIAL);
     _engine = [[AVAudioEngine alloc] init];
-    _playerNode = [[AVAudioPlayerNode alloc] init];
     _timePitchNode = [[AVAudioUnitTimePitch alloc] init];
+    _volumeMixerNode = [[AVAudioMixerNode alloc] init];
     _rate = 1.0;
     _volume = 1.0f;
     _outputSampleRate = 44100;
     _outputChannels = 2;
-    [_engine attachNode:_playerNode];
+    _pcmRingCapacityFrames = 0;
+    _pcmRingReadFrame = 0;
+    _pcmRingWriteFrame = 0;
+    _pcmRingAvailableFrames = 0;
+    _pcmRingChannels = 2;
+    _pcmRingSampleRate = 44100;
     [_engine attachNode:_timePitchNode];
+    [_engine attachNode:_volumeMixerNode];
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(handleAudioSessionInterruption:)
                                                  name:AVAudioSessionInterruptionNotification
@@ -269,7 +294,6 @@ RCT_EXPORT_MODULE();
       }
       self.isPlaying = NO;
     }
-    [self.playerNode pause];
     [self emitState:@"paused"];
     [self emitInterruption:@"began" shouldResume:NO wasPlaying:wasPlaying];
     return;
@@ -309,6 +333,7 @@ RCT_EXPORT_MODULE();
     shouldEmit = YES;
   }
   if (!shouldEmit) return;
+  [self clearPCMBuffer];
   [self emitEvent:@{
     @"type": @"ended",
     @"driver": @"pcmPlayer",
@@ -340,18 +365,38 @@ RCT_EXPORT_MODULE();
     self.pcmFormat.channelCount != channels;
 
   if (needsReconnect) {
-    [self.playerNode stop];
-    [self.engine disconnectNodeOutput:self.playerNode];
+    if (self.engine.isRunning) [self.engine stop];
+    if (self.sourceNode != nil) {
+      [self.engine detachNode:self.sourceNode];
+      self.sourceNode = nil;
+    }
     [self.engine disconnectNodeOutput:self.timePitchNode];
+    [self.engine disconnectNodeOutput:self.volumeMixerNode];
     self.pcmFormat = [[AVAudioFormat alloc] initWithCommonFormat:AVAudioPCMFormatFloat32
                                                       sampleRate:sampleRate
                                                         channels:channels
                                                      interleaved:NO];
-    [self.engine connect:self.playerNode to:self.timePitchNode format:self.pcmFormat];
-    [self.engine connect:self.timePitchNode to:self.engine.mainMixerNode format:self.pcmFormat];
+    __weak PCMPlayerModule *weakSelf = self;
+    self.sourceNode = [[AVAudioSourceNode alloc] initWithRenderBlock:^OSStatus(BOOL *isSilence,
+                                                                               const AudioTimeStamp *timestamp,
+                                                                               AVAudioFrameCount frameCount,
+                                                                               AudioBufferList *outputData) {
+      PCMPlayerModule *strongSelf = weakSelf;
+      if (strongSelf == nil) {
+        if (isSilence != NULL) *isSilence = YES;
+        return noErr;
+      }
+      [strongSelf renderPCMFrames:frameCount outputData:outputData isSilence:isSilence];
+      return noErr;
+    }];
+    [self.engine attachNode:self.sourceNode];
+    [self.engine connect:self.sourceNode to:self.timePitchNode format:self.pcmFormat];
+    [self.engine connect:self.timePitchNode to:self.volumeMixerNode format:self.pcmFormat];
+    [self.engine connect:self.volumeMixerNode to:self.engine.mainMixerNode format:self.pcmFormat];
+    [self resetPCMBufferWithSampleRate:(int)sampleRate channels:(int)channels];
   }
 
-  self.playerNode.volume = self.volume;
+  self.volumeMixerNode.outputVolume = self.volume;
   self.timePitchNode.rate = self.rate;
   if (!self.engine.isRunning && ![self.engine startAndReturnError:error]) return NO;
   return YES;
@@ -374,6 +419,109 @@ RCT_EXPORT_MODULE();
   return errorMessage;
 }
 
+- (void)resetPCMBufferWithSampleRate:(int)sampleRate channels:(int)channels {
+  if (sampleRate <= 0) sampleRate = 44100;
+  if (channels <= 0) channels = 2;
+  size_t capacityFrames = (size_t)sampleRate * 12;
+  std::lock_guard<std::mutex> lock(_pcmRingMutex);
+  _pcmRingSampleRate = sampleRate;
+  _pcmRingChannels = (size_t)channels;
+  _pcmRingCapacityFrames = capacityFrames;
+  _pcmRingBuffer.assign(capacityFrames * (size_t)channels, 0.0f);
+  _pcmRingReadFrame = 0;
+  _pcmRingWriteFrame = 0;
+  _pcmRingAvailableFrames = 0;
+}
+
+- (void)clearPCMBuffer {
+  std::lock_guard<std::mutex> lock(_pcmRingMutex);
+  _pcmRingReadFrame = 0;
+  _pcmRingWriteFrame = 0;
+  _pcmRingAvailableFrames = 0;
+}
+
+- (size_t)availablePCMFrames {
+  std::lock_guard<std::mutex> lock(_pcmRingMutex);
+  return _pcmRingAvailableFrames;
+}
+
+- (BOOL)appendPCMFrames:(uint8_t **)convertedData samples:(int)samples sampleOffset:(int)sampleOffset channels:(int)channels {
+  if (convertedData == NULL || samples <= 0 || sampleOffset < 0 || channels <= 0) return YES;
+  std::lock_guard<std::mutex> lock(_pcmRingMutex);
+  if (_pcmRingCapacityFrames == 0 || _pcmRingChannels != (size_t)channels) return NO;
+  size_t framesToWrite = (size_t)samples;
+  size_t freeFrames = _pcmRingCapacityFrames - _pcmRingAvailableFrames;
+  if (framesToWrite > freeFrames) return NO;
+  for (size_t frame = 0; frame < framesToWrite; frame += 1) {
+    size_t targetFrame = (_pcmRingWriteFrame + frame) % _pcmRingCapacityFrames;
+    size_t targetOffset = targetFrame * _pcmRingChannels;
+    for (int channel = 0; channel < channels; channel += 1) {
+      const float *sourceSamples = ((const float *)convertedData[channel]) + sampleOffset;
+      _pcmRingBuffer[targetOffset + (size_t)channel] = sourceSamples[frame];
+    }
+  }
+  _pcmRingWriteFrame = (_pcmRingWriteFrame + framesToWrite) % _pcmRingCapacityFrames;
+  _pcmRingAvailableFrames += framesToWrite;
+  return YES;
+}
+
+- (void)renderPCMFrames:(AVAudioFrameCount)frameCount outputData:(AudioBufferList *)outputData isSilence:(BOOL *)isSilence {
+  if (outputData == NULL) return;
+  for (UInt32 bufferIndex = 0; bufferIndex < outputData->mNumberBuffers; bufferIndex += 1) {
+    AudioBuffer *buffer = &outputData->mBuffers[bufferIndex];
+    if (buffer->mData != NULL) memset(buffer->mData, 0, buffer->mDataByteSize);
+  }
+
+  NSUInteger generation = 0;
+  BOOL shouldRender = NO;
+  int sampleRate = 44100;
+  @synchronized (self) {
+    generation = self.generation;
+    shouldRender = self.isPlaying && self.isLoaded;
+    sampleRate = self.outputSampleRate;
+  }
+  if (!shouldRender) {
+    if (isSilence != NULL) *isSilence = YES;
+    return;
+  }
+
+  size_t framesRead = 0;
+  {
+    std::lock_guard<std::mutex> lock(_pcmRingMutex);
+    size_t framesToRead = MIN((size_t)frameCount, _pcmRingAvailableFrames);
+    size_t outputBuffers = (size_t)outputData->mNumberBuffers;
+    for (size_t frame = 0; frame < framesToRead; frame += 1) {
+      size_t sourceFrame = (_pcmRingReadFrame + frame) % _pcmRingCapacityFrames;
+      size_t sourceOffset = sourceFrame * _pcmRingChannels;
+      for (size_t channel = 0; channel < outputBuffers; channel += 1) {
+        AudioBuffer *buffer = &outputData->mBuffers[channel];
+        if (buffer->mData == NULL) continue;
+        float *target = (float *)buffer->mData;
+        size_t sourceChannel = MIN(channel, _pcmRingChannels - 1);
+        target[frame] = _pcmRingBuffer[sourceOffset + sourceChannel];
+      }
+    }
+    _pcmRingReadFrame = (_pcmRingReadFrame + framesToRead) % MAX(_pcmRingCapacityFrames, (size_t)1);
+    _pcmRingAvailableFrames -= framesToRead;
+    framesRead = framesToRead;
+  }
+
+  if (isSilence != NULL) *isSilence = framesRead == 0;
+  if (framesRead > 0) [self updateBufferedFramesAfterRender:(AVAudioFrameCount)framesRead sampleRate:sampleRate generation:generation];
+  BOOL shouldEmitEnded = NO;
+  @synchronized (self) {
+    if (generation == self.generation && self.decodeEnded && self.scheduledFrames <= 0 && !self.hasQueuedEndedEvent) {
+      self.hasQueuedEndedEvent = YES;
+      shouldEmitEnded = YES;
+    }
+  }
+  if (shouldEmitEnded) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [self emitEndedForGeneration:generation];
+    });
+  }
+}
+
 - (void)resetPlaybackStateForTrack:(NSString *)trackId source:(NSString *)source userAgent:(NSString *)userAgent position:(double)position generation:(NSUInteger *)generation {
   @synchronized (self) {
     self.generation += 1;
@@ -385,6 +533,7 @@ RCT_EXPORT_MODULE();
     self.isLoaded = NO;
     self.isDecoding = NO;
     self.decodeEnded = NO;
+    self.hasQueuedEndedEvent = NO;
     self.hasPendingSeek = NO;
     self.isApplyingSeek = NO;
     self.pendingSeekPosition = 0;
@@ -399,9 +548,8 @@ RCT_EXPORT_MODULE();
     self.positionBaseTime = CACurrentMediaTime();
     self.bufferedPosition = MAX(position, 0);
     self.scheduledFrames = 0;
-    self.scheduleGeneration += 1;
   }
-  [self.playerNode stop];
+  [self clearPCMBuffer];
 }
 
 - (void)invalidatePlayback {
@@ -414,6 +562,7 @@ RCT_EXPORT_MODULE();
     self.isLoaded = NO;
     self.isDecoding = NO;
     self.decodeEnded = YES;
+    self.hasQueuedEndedEvent = NO;
     self.hasPendingSeek = NO;
     self.isApplyingSeek = NO;
     self.pendingSeekPosition = 0;
@@ -428,9 +577,8 @@ RCT_EXPORT_MODULE();
     self.positionBaseTime = CACurrentMediaTime();
     self.bufferedPosition = 0;
     self.scheduledFrames = 0;
-    self.scheduleGeneration += 1;
   }
-  [self.playerNode stop];
+  [self clearPCMBuffer];
 }
 
 - (BOOL)isGenerationActive:(NSUInteger)generation {
@@ -456,21 +604,16 @@ RCT_EXPORT_MODULE();
   }
 }
 
-- (void)stopPlayerNodeSynchronously {
-  if ([NSThread isMainThread]) {
-    [self.playerNode stop];
-    return;
-  }
-  dispatch_sync(dispatch_get_main_queue(), ^{
-    [self.playerNode stop];
-  });
+- (void)clearPCMOutputSynchronously {
+  [self clearPCMBuffer];
 }
 
 - (BOOL)shouldThrottleDecodeForGeneration:(NSUInteger)generation sampleRate:(int)sampleRate {
   @synchronized (self) {
     if (generation != self.generation) return NO;
     if (self.hasPendingSeek) return NO;
-    int64_t maxAheadFrames = (int64_t)sampleRate * 8;
+    int64_t maxAheadFrames = (int64_t)sampleRate * 4;
+    self.scheduledFrames = (int64_t)[self availablePCMFrames];
     return self.scheduledFrames > maxAheadFrames;
   }
 }
@@ -491,7 +634,7 @@ RCT_EXPORT_MODULE();
     double currentPosition = [self currentPositionLocked];
     self.positionBase = currentPosition;
     self.positionBaseTime = CACurrentMediaTime();
-    self.scheduledFrames += frames;
+    self.scheduledFrames = (int64_t)[self availablePCMFrames];
     double nextBuffered = self.positionBase + ((double)self.scheduledFrames / MAX(sampleRate, 1));
     self.bufferedPosition = self.duration > 0 ? MIN(MAX(self.bufferedPosition, nextBuffered), self.duration) : MAX(self.bufferedPosition, nextBuffered);
   }
@@ -520,21 +663,11 @@ RCT_EXPORT_MODULE();
   }];
 }
 
-- (NSUInteger)currentScheduleGenerationForGeneration:(NSUInteger)generation {
+- (void)updateBufferedFramesAfterRender:(AVAudioFrameCount)frames sampleRate:(int)sampleRate generation:(NSUInteger)generation {
   @synchronized (self) {
-    if (generation != self.generation) return 0;
-    return self.scheduleGeneration;
+    if (generation != self.generation) return;
+    self.scheduledFrames = (int64_t)[self availablePCMFrames];
   }
-}
-
-- (void)markPlayedFrames:(AVAudioFrameCount)frames sampleRate:(int)sampleRate generation:(NSUInteger)generation scheduleGeneration:(NSUInteger)scheduleGeneration {
-  BOOL ended = NO;
-  @synchronized (self) {
-    if (generation != self.generation || scheduleGeneration != self.scheduleGeneration) return;
-    self.scheduledFrames = MAX((int64_t)0, self.scheduledFrames - (int64_t)frames);
-    ended = self.decodeEnded && self.scheduledFrames <= 0;
-  }
-  if (ended) [self emitEndedForGeneration:generation];
 }
 
 #if LX_HAS_FFMPEG
@@ -551,33 +684,15 @@ RCT_EXPORT_MODULE();
   AVAudioFormat *format = self.pcmFormat;
   if (format == nil || format.channelCount != channels || fabs(format.sampleRate - sampleRate) > 0.1) return NO;
 
-  AVAudioPCMBuffer *buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:format frameCapacity:(AVAudioFrameCount)samples];
-  if (buffer == nil || buffer.floatChannelData == NULL) return NO;
-  buffer.frameLength = (AVAudioFrameCount)samples;
-
-  for (int channel = 0; channel < channels; channel += 1) {
-    const float *sourceSamples = ((const float *)convertedData[channel]) + sampleOffset;
-    memcpy(buffer.floatChannelData[channel], sourceSamples, sizeof(float) * samples);
+  while ([self isGenerationActive:generation]) {
+    if ([self appendPCMFrames:convertedData samples:samples sampleOffset:sampleOffset channels:channels]) {
+      [self markDecodedFrames:(AVAudioFrameCount)samples sampleRate:sampleRate generation:generation];
+      return YES;
+    }
+    if ([self shouldInterruptDecodeForGeneration:generation]) return NO;
+    [NSThread sleepForTimeInterval:0.01];
   }
-
-  [self markDecodedFrames:buffer.frameLength sampleRate:sampleRate generation:generation];
-  NSUInteger scheduleGeneration = [self currentScheduleGenerationForGeneration:generation];
-  __weak PCMPlayerModule *weakSelf = self;
-  [self.playerNode scheduleBuffer:buffer completionCallbackType:AVAudioPlayerNodeCompletionDataPlayedBack completionHandler:^(AVAudioPlayerNodeCompletionCallbackType callbackType) {
-    PCMPlayerModule *strongSelf = weakSelf;
-    if (strongSelf == nil) return;
-    [strongSelf markPlayedFrames:buffer.frameLength sampleRate:sampleRate generation:generation scheduleGeneration:scheduleGeneration];
-  }];
-  BOOL shouldPlay = NO;
-  @synchronized (self) {
-    shouldPlay = generation == self.generation && self.isPlaying;
-  }
-  if (shouldPlay) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-      if ([self isGenerationActive:generation]) [self.playerNode play];
-    });
-  }
-  return YES;
+  return NO;
 }
 
 - (void)decodeSource:(NSString *)source
@@ -794,15 +909,15 @@ RCT_EXPORT_MODULE();
     }
     av_packet_unref(packet);
     av_frame_unref(frame);
-    [self stopPlayerNodeSynchronously];
+    [self clearPCMOutputSynchronously];
     @synchronized (self) {
       if (generation != self.generation) return NO;
       self.decodeEnded = NO;
+      self.hasQueuedEndedEvent = NO;
       self.positionBase = target;
       self.positionBaseTime = CACurrentMediaTime();
       self.bufferedPosition = target;
       self.scheduledFrames = 0;
-      self.scheduleGeneration += 1;
       self.hasSeekReadyLog = requestedAt > 0 && !wasSuperseded;
       self.seekReadyLogId = seekId;
       self.seekReadyLogRequestedAt = requestedAt;
@@ -962,6 +1077,7 @@ RCT_EXPORT_MODULE();
     @synchronized (self) {
       if (generation == self.generation) {
         self.decodeEnded = YES;
+        self.scheduledFrames = (int64_t)[self availablePCMFrames];
         shouldEnd = self.scheduledFrames <= 0;
       }
     }
@@ -1058,7 +1174,6 @@ RCT_REMAP_METHOD(play, playWithResolver:(RCTPromiseResolveBlock)resolve rejecter
         self.isPlaying = YES;
       }
     }
-    [self.playerNode play];
     [self emitState:@"playing"];
     resolve(nil);
   });
@@ -1073,7 +1188,6 @@ RCT_REMAP_METHOD(pause, pauseWithResolver:(RCTPromiseResolveBlock)resolve reject
       }
       self.isPlaying = NO;
     }
-    [self.playerNode pause];
     [self emitState:@"paused"];
     resolve(nil);
   });
@@ -1131,11 +1245,11 @@ RCT_REMAP_METHOD(seekTo, seekTo:(double)position resolver:(RCTPromiseResolveBloc
         self.pendingSeekPosition = target;
         self.pendingSeekRequestedAt = CACurrentMediaTime();
         self.decodeEnded = NO;
+        self.hasQueuedEndedEvent = NO;
         self.positionBase = target;
         self.positionBaseTime = CACurrentMediaTime();
         self.bufferedPosition = target;
         self.scheduledFrames = 0;
-        self.scheduleGeneration += 1;
         duration = self.duration;
         if (shouldResume) self.isPlaying = YES;
       }
@@ -1145,12 +1259,7 @@ RCT_REMAP_METHOD(seekTo, seekTo:(double)position resolver:(RCTPromiseResolveBloc
       return;
     }
     if (didQueueSeek) {
-      [self stopPlayerNodeSynchronously];
-      if (shouldResume) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-          if ([self isGenerationActive:generation]) [self.playerNode play];
-        });
-      }
+      [self clearPCMOutputSynchronously];
       [self emitEvent:@{
         @"type": @"seek",
         @"driver": @"pcmPlayer",
@@ -1217,7 +1326,7 @@ RCT_REMAP_METHOD(getState, getStateWithResolver:(RCTPromiseResolveBlock)resolve 
 RCT_REMAP_METHOD(setVolume, setVolume:(double)volume resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
   dispatch_async(dispatch_get_main_queue(), ^{
     self.volume = (float)LXPCMClampDouble(volume, 0, 1);
-    self.playerNode.volume = self.volume;
+    self.volumeMixerNode.outputVolume = self.volume;
     resolve(nil);
   });
 }
