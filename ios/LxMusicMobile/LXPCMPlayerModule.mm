@@ -108,6 +108,20 @@ static double LXPCMClampDouble(double value, double minValue, double maxValue) {
 - (BOOL)appendPCMFrames:(uint8_t **)convertedData samples:(int)samples sampleOffset:(int)sampleOffset channels:(int)channels;
 - (void)renderPCMFrames:(AVAudioFrameCount)frameCount outputData:(AudioBufferList *)outputData isSilence:(BOOL *)isSilence;
 - (void)updateBufferedFramesAfterRender:(AVAudioFrameCount)frames sampleRate:(int)sampleRate generation:(NSUInteger)generation;
+#if LX_HAS_FFMPEG
+- (BOOL)seekDecodeContextWithFormatContext:(AVFormatContext *)formatContext
+                                    stream:(AVStream *)stream
+                               streamIndex:(int)streamIndex
+                           streamStartTime:(int64_t)streamStartTime
+                              codecContext:(AVCodecContext *)codecContext
+                                swrContext:(SwrContext *)swrContext
+                                    packet:(AVPacket *)packet
+                                     frame:(AVFrame *)frame
+                                generation:(NSUInteger)generation
+                                  position:(double)position
+                                    seekId:(NSUInteger)seekId
+                               requestedAt:(CFTimeInterval)requestedAt;
+#endif
 @end
 
 typedef struct {
@@ -695,6 +709,76 @@ RCT_EXPORT_MODULE();
   return NO;
 }
 
+- (BOOL)seekDecodeContextWithFormatContext:(AVFormatContext *)formatContext
+                                    stream:(AVStream *)stream
+                               streamIndex:(int)streamIndex
+                           streamStartTime:(int64_t)streamStartTime
+                              codecContext:(AVCodecContext *)codecContext
+                                swrContext:(SwrContext *)swrContext
+                                    packet:(AVPacket *)packet
+                                     frame:(AVFrame *)frame
+                                generation:(NSUInteger)generation
+                                  position:(double)position
+                                    seekId:(NSUInteger)seekId
+                               requestedAt:(CFTimeInterval)requestedAt {
+  double target = MAX(position, 0);
+  CFTimeInterval seekStartedAt = CACurrentMediaTime();
+  @synchronized (self) {
+    if (generation == self.generation) self.isApplyingSeek = YES;
+  }
+  int seekResult = LXPCMSeekAudioStream(formatContext, stream, streamIndex, streamStartTime, target, AVSEEK_FLAG_BACKWARD);
+  BOOL wasSuperseded = NO;
+  @synchronized (self) {
+    if (generation == self.generation) {
+      self.isApplyingSeek = NO;
+      wasSuperseded = self.hasPendingSeek && self.pendingSeekId != seekId;
+    }
+  }
+  double seekElapsedMs = (CACurrentMediaTime() - seekStartedAt) * 1000;
+  if (seekResult < 0) {
+    if (wasSuperseded) {
+      return YES;
+    }
+    [self emitLog:@"error" message:@"pcm seek failed" details:@{
+      @"seekId": @(seekId),
+      @"position": @(target),
+      @"result": @(seekResult),
+      @"elapsedMs": @((NSInteger)round(seekElapsedMs)),
+    }];
+    return NO;
+  }
+  if (wasSuperseded) return YES;
+  if (seekElapsedMs > 800) {
+    [self emitLog:@"warn" message:@"pcm seek slow" details:@{
+      @"seekId": @(seekId),
+      @"position": @(target),
+      @"elapsedMs": @((NSInteger)round(seekElapsedMs)),
+    }];
+  }
+  avcodec_flush_buffers(codecContext);
+  if (swrContext != NULL) {
+    swr_close(swrContext);
+    if (swr_init(swrContext) < 0) return NO;
+  }
+  av_packet_unref(packet);
+  av_frame_unref(frame);
+  [self clearPCMOutputSynchronously];
+  @synchronized (self) {
+    if (generation != self.generation) return NO;
+    self.decodeEnded = NO;
+    self.hasQueuedEndedEvent = NO;
+    self.positionBase = target;
+    self.positionBaseTime = CACurrentMediaTime();
+    self.bufferedPosition = target;
+    self.scheduledFrames = 0;
+    self.hasSeekReadyLog = requestedAt > 0 && !wasSuperseded;
+    self.seekReadyLogId = seekId;
+    self.seekReadyLogRequestedAt = requestedAt;
+    self.seekReadyLogPosition = target;
+  }
+  return YES;
+}
+
 - (void)decodeSource:(NSString *)source
              trackId:(NSString *)trackId
           userAgent:(NSString *)userAgent
@@ -728,7 +812,6 @@ RCT_EXPORT_MODULE();
   double duration = 0;
   NSString *engineErrorMessage = nil;
   BOOL shouldTrimDecodedAudio = position > 0;
-  BOOL (^seekDecodeContext)(double, NSUInteger, CFTimeInterval) = nil;
   LXPCMInterruptContext interruptContext = { self, generation };
 
   @synchronized (self) {
@@ -867,65 +950,6 @@ RCT_EXPORT_MODULE();
 
   [self emitState:@"buffering"];
 
-  seekDecodeContext = ^BOOL(double seekPosition, NSUInteger seekId, CFTimeInterval requestedAt) {
-    double target = MAX(seekPosition, 0);
-    CFTimeInterval seekStartedAt = CACurrentMediaTime();
-    @synchronized (self) {
-      if (generation == self.generation) self.isApplyingSeek = YES;
-    }
-    int seekResult = LXPCMSeekAudioStream(formatContext, stream, streamIndex, streamStartTime, target, AVSEEK_FLAG_BACKWARD);
-    BOOL wasSuperseded = NO;
-    @synchronized (self) {
-      if (generation == self.generation) {
-        self.isApplyingSeek = NO;
-        wasSuperseded = self.hasPendingSeek && self.pendingSeekId != seekId;
-      }
-    }
-    double seekElapsedMs = (CACurrentMediaTime() - seekStartedAt) * 1000;
-    if (seekResult < 0) {
-      if (wasSuperseded) {
-        return YES;
-      }
-      [self emitLog:@"error" message:@"pcm seek failed" details:@{
-        @"seekId": @(seekId),
-        @"position": @(target),
-        @"result": @(seekResult),
-        @"elapsedMs": @((NSInteger)round(seekElapsedMs)),
-      }];
-      return NO;
-    }
-    if (wasSuperseded) return YES;
-    if (seekElapsedMs > 800) {
-      [self emitLog:@"warn" message:@"pcm seek slow" details:@{
-        @"seekId": @(seekId),
-        @"position": @(target),
-        @"elapsedMs": @((NSInteger)round(seekElapsedMs)),
-      }];
-    }
-    avcodec_flush_buffers(codecContext);
-    if (swrContext != NULL) {
-      swr_close(swrContext);
-      if (swr_init(swrContext) < 0) return NO;
-    }
-    av_packet_unref(packet);
-    av_frame_unref(frame);
-    [self clearPCMOutputSynchronously];
-    @synchronized (self) {
-      if (generation != self.generation) return NO;
-      self.decodeEnded = NO;
-      self.hasQueuedEndedEvent = NO;
-      self.positionBase = target;
-      self.positionBaseTime = CACurrentMediaTime();
-      self.bufferedPosition = target;
-      self.scheduledFrames = 0;
-      self.hasSeekReadyLog = requestedAt > 0 && !wasSuperseded;
-      self.seekReadyLogId = seekId;
-      self.seekReadyLogRequestedAt = requestedAt;
-      self.seekReadyLogPosition = target;
-    }
-    return YES;
-  };
-
   while ([self isGenerationActive:generation]) {
     double pendingSeekPosition = 0;
     NSUInteger pendingSeekId = 0;
@@ -934,7 +958,18 @@ RCT_EXPORT_MODULE();
       inputEnded = NO;
       position = pendingSeekPosition;
       shouldTrimDecodedAudio = position > 0;
-      if (!seekDecodeContext(position, pendingSeekId, pendingSeekRequestedAt)) {
+      if (![self seekDecodeContextWithFormatContext:formatContext
+                                             stream:stream
+                                        streamIndex:streamIndex
+                                    streamStartTime:streamStartTime
+                                       codecContext:codecContext
+                                         swrContext:swrContext
+                                             packet:packet
+                                              frame:frame
+                                         generation:generation
+                                           position:position
+                                             seekId:pendingSeekId
+                                        requestedAt:pendingSeekRequestedAt]) {
         if (![self isGenerationActive:generation]) goto cleanup;
         finishReject(@"seek_failed", @"FFmpeg failed to seek audio stream");
         goto cleanup;
@@ -954,7 +989,18 @@ RCT_EXPORT_MODULE();
       inputEnded = NO;
       position = pendingSeekPosition;
       shouldTrimDecodedAudio = position > 0;
-      if (!seekDecodeContext(position, pendingSeekId, pendingSeekRequestedAt)) {
+      if (![self seekDecodeContextWithFormatContext:formatContext
+                                             stream:stream
+                                        streamIndex:streamIndex
+                                    streamStartTime:streamStartTime
+                                       codecContext:codecContext
+                                         swrContext:swrContext
+                                             packet:packet
+                                              frame:frame
+                                         generation:generation
+                                           position:position
+                                             seekId:pendingSeekId
+                                        requestedAt:pendingSeekRequestedAt]) {
         if (![self isGenerationActive:generation]) goto cleanup;
         finishReject(@"seek_failed", @"FFmpeg failed to seek audio stream");
         goto cleanup;
@@ -980,7 +1026,18 @@ RCT_EXPORT_MODULE();
         inputEnded = NO;
         position = pendingSeekPosition;
         shouldTrimDecodedAudio = position > 0;
-        if (!seekDecodeContext(position, pendingSeekId, pendingSeekRequestedAt)) {
+        if (![self seekDecodeContextWithFormatContext:formatContext
+                                               stream:stream
+                                          streamIndex:streamIndex
+                                      streamStartTime:streamStartTime
+                                         codecContext:codecContext
+                                           swrContext:swrContext
+                                               packet:packet
+                                                frame:frame
+                                           generation:generation
+                                             position:position
+                                               seekId:pendingSeekId
+                                          requestedAt:pendingSeekRequestedAt]) {
           if (![self isGenerationActive:generation]) goto cleanup;
           finishReject(@"seek_failed", @"FFmpeg failed to seek audio stream");
           goto cleanup;
