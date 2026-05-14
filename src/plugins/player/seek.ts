@@ -51,43 +51,9 @@ export const seekToTime = async(targetTime: number) => {
     : targetTime
 
   if (actionId != seekActionId) return targetTime
-  const seekResult = await seekPCMPlayer(playerTargetTime)
+  await seekPCMPlayer(playerTargetTime)
   if (Platform.OS != 'ios') return targetTime
 
-  let position = typeof seekResult == 'number' && Number.isFinite(seekResult)
-    ? seekResult
-    : playerTargetTime
-  let stableCount = 0
-  for (const [delay, tolerance] of [
-    [140, 1.2],
-    [200, 0.75],
-    [280, 0.4],
-    [360, 0.22],
-    [520, 0.12],
-  ] as const) {
-    await wait(delay)
-    if (actionId != seekActionId) return targetTime
-    const currentPosition = await getRawPosition().catch(() => position)
-    const nextPosition = currentPosition > 0 ? currentPosition : position
-    // eslint-disable-next-line require-atomic-updates
-    position = nextPosition
-    if (Math.abs(position - playerTargetTime) <= tolerance) {
-      stableCount++
-      if (stableCount > 1 || tolerance <= 0.22) break
-      continue
-    }
-    stableCount = 0
-    if (actionId != seekActionId) return targetTime
-    const retryResult = await seekPCMPlayer(playerTargetTime)
-    if (typeof retryResult == 'number' && Number.isFinite(retryResult)) {
-      // eslint-disable-next-line require-atomic-updates
-      position = retryResult
-    }
-  }
   if (actionId != seekActionId) return targetTime
-  const finalPosition = await getRawPosition().catch(() => position)
-  // eslint-disable-next-line require-atomic-updates
-  position = finalPosition > 0 ? finalPosition : position
-  const finalDuration = await getPlayerDuration().catch(() => duration)
-  return mapPlayerTimeToTimelineTime(playerState.playMusicInfo.musicInfo, position, finalDuration || duration)
+  return mapPlayerTimeToTimelineTime(playerState.playMusicInfo.musicInfo, playerTargetTime, duration)
 }
