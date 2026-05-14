@@ -11,7 +11,6 @@ import {
 } from './pcmPlayerCore'
 
 const wait = async(ms: number) => new Promise(resolve => setTimeout(resolve, ms))
-let seekActionId = 0
 
 export const getPlayerDuration = async() => {
   return getPCMPlayerDuration()
@@ -42,7 +41,6 @@ export const getAccuratePosition = async() => {
 }
 
 export const seekToTime = async(targetTime: number) => {
-  const actionId = ++seekActionId
   const duration = Platform.OS == 'ios'
     ? await waitForPlayerDuration()
     : 0
@@ -50,10 +48,6 @@ export const seekToTime = async(targetTime: number) => {
     ? mapTimelineTimeToPlayerTime(playerState.playMusicInfo.musicInfo, targetTime, duration)
     : targetTime
 
-  if (actionId != seekActionId) return targetTime
   await seekPCMPlayer(playerTargetTime)
-  if (Platform.OS != 'ios') return targetTime
-
-  if (actionId != seekActionId) return targetTime
-  return mapPlayerTimeToTimelineTime(playerState.playMusicInfo.musicInfo, playerTargetTime, duration)
+  return targetTime
 }
