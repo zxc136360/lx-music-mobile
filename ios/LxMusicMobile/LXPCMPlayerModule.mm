@@ -3,6 +3,8 @@
 #import <AVFoundation/AVFoundation.h>
 #import <QuartzCore/QuartzCore.h>
 #import <React/RCTConvert.h>
+#include <errno.h>
+#include <stdint.h>
 
 #if __has_include(<libavformat/avformat.h>)
 #define LX_HAS_FFMPEG 1
@@ -98,6 +100,29 @@ static int LXPCMInterruptCallback(void *opaque) {
   LXPCMInterruptContext *context = (LXPCMInterruptContext *)opaque;
   if (context == NULL || context->player == nil) return 0;
   return [context->player shouldInterruptDecodeForGeneration:context->generation] ? 1 : 0;
+}
+
+static BOOL LXPCMIsHTTPInput(NSString *input) {
+  NSString *lowerInput = [input lowercaseString];
+  return [lowerInput hasPrefix:@"http://"] || [lowerInput hasPrefix:@"https://"];
+}
+
+static int LXPCMSeekAudioStream(AVFormatContext *formatContext,
+                                AVStream *stream,
+                                int streamIndex,
+                                int64_t streamStartTime,
+                                double position,
+                                int flags) {
+  if (formatContext == NULL || stream == NULL) return AVERROR(EINVAL);
+  double target = MAX(position, 0);
+  int64_t seekTarget = streamStartTime + av_rescale_q((int64_t)(target * AV_TIME_BASE), AV_TIME_BASE_Q, stream->time_base);
+  int64_t seekWindow = av_rescale_q(2 * AV_TIME_BASE, AV_TIME_BASE_Q, stream->time_base);
+  int64_t minTarget = seekTarget > INT64_MIN + seekWindow ? seekTarget - seekWindow : INT64_MIN;
+  int64_t maxTarget = seekTarget < INT64_MAX - seekWindow ? seekTarget + seekWindow : INT64_MAX;
+  int result = avformat_seek_file(formatContext, streamIndex, minTarget, seekTarget, maxTarget, flags);
+  if (result < 0) result = av_seek_frame(formatContext, streamIndex, seekTarget, flags);
+  if (result < 0) result = av_seek_frame(formatContext, streamIndex, seekTarget, flags | AVSEEK_FLAG_ANY);
+  return result;
 }
 
 @implementation PCMPlayerModule
@@ -620,6 +645,7 @@ RCT_EXPORT_MODULE();
     NSURL *fileURL = [NSURL URLWithString:input];
     if (fileURL.path.length) input = fileURL.path;
   }
+  BOOL isHTTPInput = LXPCMIsHTTPInput(input);
 
   formatContext = avformat_alloc_context();
   if (formatContext == NULL) {
@@ -634,6 +660,11 @@ RCT_EXPORT_MODULE();
   av_dict_set(&options, "reconnect_streamed", "1", 0);
   av_dict_set(&options, "reconnect_delay_max", "5", 0);
   av_dict_set(&options, "rw_timeout", "15000000", 0);
+  if (isHTTPInput) {
+    av_dict_set(&options, "multiple_requests", "1", 0);
+    av_dict_set(&options, "seekable", "1", 0);
+    av_dict_set(&options, "short_seek_size", "1048576", 0);
+  }
 
   result = avformat_open_input(&formatContext, input.UTF8String, NULL, &options);
   av_dict_free(&options);
@@ -707,8 +738,7 @@ RCT_EXPORT_MODULE();
 
   [self markLoadedForGeneration:generation duration:duration sampleRate:sampleRate channels:outputChannels];
   if (position > 0) {
-    int64_t seekTarget = streamStartTime + av_rescale_q((int64_t)(position * AV_TIME_BASE), AV_TIME_BASE_Q, stream->time_base);
-    if (av_seek_frame(formatContext, streamIndex, seekTarget, AVSEEK_FLAG_BACKWARD) >= 0) {
+    if (LXPCMSeekAudioStream(formatContext, stream, streamIndex, streamStartTime, position, AVSEEK_FLAG_BACKWARD) >= 0) {
       avcodec_flush_buffers(codecContext);
     }
   }
@@ -724,12 +754,11 @@ RCT_EXPORT_MODULE();
 
   seekDecodeContext = ^BOOL(double seekPosition, NSUInteger seekId, CFTimeInterval requestedAt) {
     double target = MAX(seekPosition, 0);
-    int64_t seekTarget = streamStartTime + av_rescale_q((int64_t)(target * AV_TIME_BASE), AV_TIME_BASE_Q, stream->time_base);
     CFTimeInterval seekStartedAt = CACurrentMediaTime();
     @synchronized (self) {
       if (generation == self.generation) self.isApplyingSeek = YES;
     }
-    int seekResult = av_seek_frame(formatContext, streamIndex, seekTarget, AVSEEK_FLAG_BACKWARD);
+    int seekResult = LXPCMSeekAudioStream(formatContext, stream, streamIndex, streamStartTime, target, AVSEEK_FLAG_BACKWARD);
     BOOL wasSuperseded = NO;
     @synchronized (self) {
       if (generation == self.generation) {
