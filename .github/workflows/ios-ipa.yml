@@ -47,6 +47,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Prepare Hermes iOS artifacts
+        shell: bash
+        run: node scripts/ci/prepare-hermes-ios-artifacts.js
+
       - name: Install CocoaPods dependencies
         shell: bash
         run: |
