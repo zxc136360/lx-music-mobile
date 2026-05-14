@@ -89,6 +89,7 @@ static double LXPCMClampDouble(double value, double minValue, double maxValue) {
 @property (nonatomic, assign) NSUInteger seekReadyLogId;
 @property (nonatomic, assign) CFTimeInterval seekReadyLogRequestedAt;
 @property (nonatomic, assign) double seekReadyLogPosition;
+@property (nonatomic, copy) NSString *seekReadyLogMethod;
 @property (nonatomic, assign) double duration;
 @property (nonatomic, assign) double positionBase;
 @property (nonatomic, assign) CFTimeInterval positionBaseTime;
@@ -119,6 +120,7 @@ static double LXPCMClampDouble(double value, double minValue, double maxValue) {
                                      frame:(AVFrame *)frame
                                 generation:(NSUInteger)generation
                                   position:(double)position
+                                  fastSeek:(BOOL)fastSeek
                                     seekId:(NSUInteger)seekId
                                requestedAt:(CFTimeInterval)requestedAt;
 #endif
@@ -145,16 +147,35 @@ static int LXPCMSeekAudioStream(AVFormatContext *formatContext,
                                 int streamIndex,
                                 int64_t streamStartTime,
                                 double position,
-                                int flags) {
+                                int flags,
+                                BOOL preferFastSeek,
+                                NSString **method) {
   if (formatContext == NULL || stream == NULL) return AVERROR(EINVAL);
   double target = MAX(position, 0);
   int64_t seekTarget = streamStartTime + av_rescale_q((int64_t)(target * AV_TIME_BASE), AV_TIME_BASE_Q, stream->time_base);
   int64_t seekWindow = av_rescale_q(2 * AV_TIME_BASE, AV_TIME_BASE_Q, stream->time_base);
   int64_t minTarget = seekTarget > INT64_MIN + seekWindow ? seekTarget - seekWindow : INT64_MIN;
   int64_t maxTarget = seekTarget < INT64_MAX - seekWindow ? seekTarget + seekWindow : INT64_MAX;
-  int result = avformat_seek_file(formatContext, streamIndex, minTarget, seekTarget, maxTarget, flags);
-  if (result < 0) result = av_seek_frame(formatContext, streamIndex, seekTarget, flags);
-  if (result < 0) result = av_seek_frame(formatContext, streamIndex, seekTarget, flags | AVSEEK_FLAG_ANY);
+  int result = AVERROR(EINVAL);
+  if (preferFastSeek) {
+    result = av_seek_frame(formatContext, streamIndex, seekTarget, flags);
+    if (result >= 0) {
+      if (method != NULL) *method = @"frame";
+      return result;
+    }
+  }
+  result = avformat_seek_file(formatContext, streamIndex, minTarget, seekTarget, maxTarget, flags);
+  if (result >= 0) {
+    if (method != NULL) *method = @"file";
+    return result;
+  }
+  result = av_seek_frame(formatContext, streamIndex, seekTarget, flags);
+  if (result >= 0) {
+    if (method != NULL) *method = @"frame-fallback";
+    return result;
+  }
+  result = av_seek_frame(formatContext, streamIndex, seekTarget, flags | AVSEEK_FLAG_ANY);
+  if (method != NULL) *method = result >= 0 ? @"any-frame-fallback" : @"failed";
   return result;
 }
 
@@ -557,6 +578,7 @@ RCT_EXPORT_MODULE();
     self.seekReadyLogId = 0;
     self.seekReadyLogRequestedAt = 0;
     self.seekReadyLogPosition = 0;
+    self.seekReadyLogMethod = @"";
     self.duration = 0;
     self.positionBase = MAX(position, 0);
     self.positionBaseTime = CACurrentMediaTime();
@@ -586,6 +608,7 @@ RCT_EXPORT_MODULE();
     self.seekReadyLogId = 0;
     self.seekReadyLogRequestedAt = 0;
     self.seekReadyLogPosition = 0;
+    self.seekReadyLogMethod = @"";
     self.duration = 0;
     self.positionBase = 0;
     self.positionBaseTime = CACurrentMediaTime();
@@ -659,6 +682,7 @@ RCT_EXPORT_MODULE();
   NSUInteger seekId = 0;
   double position = 0;
   CFTimeInterval requestedAt = 0;
+  NSString *method = @"unknown";
   @synchronized (self) {
     if (generation != self.generation || !self.hasSeekReadyLog) return;
     self.hasSeekReadyLog = NO;
@@ -666,6 +690,7 @@ RCT_EXPORT_MODULE();
     seekId = self.seekReadyLogId;
     position = self.seekReadyLogPosition;
     requestedAt = self.seekReadyLogRequestedAt;
+    method = self.seekReadyLogMethod ?: @"unknown";
   }
   if (!shouldLog || requestedAt <= 0) return;
   double elapsedMs = (CACurrentMediaTime() - requestedAt) * 1000;
@@ -673,6 +698,7 @@ RCT_EXPORT_MODULE();
   [self emitLog:@"warn" message:@"pcm seek audio ready slow" details:@{
     @"seekId": @(seekId),
     @"position": @(position),
+    @"method": method ?: @"unknown",
     @"elapsedMs": @((NSInteger)round(elapsedMs)),
   }];
 }
@@ -719,14 +745,16 @@ RCT_EXPORT_MODULE();
                                      frame:(AVFrame *)frame
                                 generation:(NSUInteger)generation
                                   position:(double)position
+                                  fastSeek:(BOOL)fastSeek
                                     seekId:(NSUInteger)seekId
                                requestedAt:(CFTimeInterval)requestedAt {
   double target = MAX(position, 0);
+  NSString *seekMethod = @"unknown";
   CFTimeInterval seekStartedAt = CACurrentMediaTime();
   @synchronized (self) {
     if (generation == self.generation) self.isApplyingSeek = YES;
   }
-  int seekResult = LXPCMSeekAudioStream(formatContext, stream, streamIndex, streamStartTime, target, AVSEEK_FLAG_BACKWARD);
+  int seekResult = LXPCMSeekAudioStream(formatContext, stream, streamIndex, streamStartTime, target, AVSEEK_FLAG_BACKWARD, fastSeek, &seekMethod);
   BOOL wasSuperseded = NO;
   @synchronized (self) {
     if (generation == self.generation) {
@@ -743,6 +771,7 @@ RCT_EXPORT_MODULE();
       @"seekId": @(seekId),
       @"position": @(target),
       @"result": @(seekResult),
+      @"method": seekMethod ?: @"unknown",
       @"elapsedMs": @((NSInteger)round(seekElapsedMs)),
     }];
     return NO;
@@ -752,6 +781,7 @@ RCT_EXPORT_MODULE();
     [self emitLog:@"warn" message:@"pcm seek slow" details:@{
       @"seekId": @(seekId),
       @"position": @(target),
+      @"method": seekMethod ?: @"unknown",
       @"elapsedMs": @((NSInteger)round(seekElapsedMs)),
     }];
   }
@@ -775,6 +805,7 @@ RCT_EXPORT_MODULE();
     self.seekReadyLogId = seekId;
     self.seekReadyLogRequestedAt = requestedAt;
     self.seekReadyLogPosition = target;
+    self.seekReadyLogMethod = seekMethod ?: @"unknown";
   }
   return YES;
 }
@@ -861,7 +892,7 @@ RCT_EXPORT_MODULE();
   if (isHTTPInput) {
     av_dict_set(&options, "multiple_requests", "1", 0);
     av_dict_set(&options, "seekable", "1", 0);
-    av_dict_set(&options, "short_seek_size", "1048576", 0);
+    av_dict_set(&options, "short_seek_size", "4194304", 0);
   }
 
   result = avformat_open_input(&formatContext, input.UTF8String, NULL, &options);
@@ -936,7 +967,7 @@ RCT_EXPORT_MODULE();
 
   [self markLoadedForGeneration:generation duration:duration sampleRate:sampleRate channels:outputChannels];
   if (position > 0) {
-    if (LXPCMSeekAudioStream(formatContext, stream, streamIndex, streamStartTime, position, AVSEEK_FLAG_BACKWARD) >= 0) {
+    if (LXPCMSeekAudioStream(formatContext, stream, streamIndex, streamStartTime, position, AVSEEK_FLAG_BACKWARD, isHTTPInput, NULL) >= 0) {
       avcodec_flush_buffers(codecContext);
     }
   }
@@ -965,9 +996,10 @@ RCT_EXPORT_MODULE();
                                        codecContext:codecContext
                                          swrContext:swrContext
                                              packet:packet
-                                              frame:frame
+                                             frame:frame
                                          generation:generation
                                            position:position
+                                           fastSeek:isHTTPInput
                                              seekId:pendingSeekId
                                         requestedAt:pendingSeekRequestedAt]) {
         if (![self isGenerationActive:generation]) goto cleanup;
@@ -996,9 +1028,10 @@ RCT_EXPORT_MODULE();
                                        codecContext:codecContext
                                          swrContext:swrContext
                                              packet:packet
-                                              frame:frame
+                                             frame:frame
                                          generation:generation
                                            position:position
+                                           fastSeek:isHTTPInput
                                              seekId:pendingSeekId
                                         requestedAt:pendingSeekRequestedAt]) {
         if (![self isGenerationActive:generation]) goto cleanup;
@@ -1033,9 +1066,10 @@ RCT_EXPORT_MODULE();
                                          codecContext:codecContext
                                            swrContext:swrContext
                                                packet:packet
-                                                frame:frame
+                                               frame:frame
                                            generation:generation
                                              position:position
+                                             fastSeek:isHTTPInput
                                                seekId:pendingSeekId
                                           requestedAt:pendingSeekRequestedAt]) {
           if (![self isGenerationActive:generation]) goto cleanup;
