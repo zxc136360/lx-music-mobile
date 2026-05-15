@@ -1,4 +1,6 @@
 import { LIST_IDS } from '@/config/constant'
+import { createDownloadTask, retryDownloadTask, type CreateDownloadTaskOptions } from '@/core/download'
+import { findDownloadTaskByMusic } from '@/core/download/state'
 import { addListMusics } from '@/core/list'
 import { playList, playNext } from '@/core/player/player'
 import { addTempPlayList } from '@/core/player/tempPlayList'
@@ -26,6 +28,44 @@ export const handlePlayLater = (musicInfo: LX.Music.MusicInfoOnline, selectedLis
   }
 }
 
+
+export const handleDownload = async(musicInfo: LX.Music.MusicInfoOnline, selectedList: LX.Music.MusicInfoOnline[], onCancelSelect: () => void, options: CreateDownloadTaskOptions = {}) => {
+  const list = selectedList.length ? selectedList : [musicInfo]
+  let added = 0
+  let skipped = 0
+  let retried = 0
+  let failed = 0
+
+  for (const musicInfo of list) {
+    try {
+      const existsTask = findDownloadTaskByMusic(musicInfo, options.quality)
+      if (existsTask) {
+        if (existsTask.status == 'error' || existsTask.status == 'pause') {
+          await retryDownloadTask(existsTask.id)
+          retried++
+        } else {
+          skipped++
+        }
+        continue
+      }
+      await createDownloadTask(musicInfo, options)
+      added++
+    } catch {
+      failed++
+    }
+  }
+
+  if (selectedList.length) onCancelSelect()
+
+  const messages = []
+  if (added) messages.push(`已添加 ${added} 个下载任务`)
+  if (retried) messages.push(`已重试 ${retried} 个下载任务`)
+  if (skipped) messages.push(`已跳过 ${skipped} 个已有任务`)
+  if (failed) messages.push(`${failed} 个任务添加失败`)
+  if (!messages.length) return
+  if (failed) toast(messages.join('，'), 'long')
+  else toast(messages.join('，'))
+}
 
 export const handleShare = (musicInfo: LX.Music.MusicInfoOnline) => {
   shareMusic(settingState.setting['common.shareType'], settingState.setting['download.fileName'], musicInfo)

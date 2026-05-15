@@ -8,6 +8,7 @@ import dataInit from './dataInit'
 import initSync from './sync'
 import initCommonState from './common'
 import { initDeeplink } from './deeplink'
+import { initDownloadList } from '@/core/download'
 import { setApiSource } from '@/core/apiSource'
 import commonActions from '@/store/common/action'
 import settingState from '@/store/setting/state'
@@ -55,6 +56,8 @@ export default async() => {
   bootLog('Playback Service Registered.')
   await initPlayer(setting)
   bootLog('Player inited.')
+  await initDownloadList()
+  bootLog('Download List inited.')
   await dataInit(setting)
   bootLog('Data inited.')
   await initCommonState(setting)

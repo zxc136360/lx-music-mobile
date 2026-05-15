@@ -6,6 +6,7 @@ import Pic from './components/Pic'
 import Title from './components/Title'
 import PlayInfo from './components/PlayInfo'
 import ControlBtn from './components/ControlBtn'
+import DownloadButton from './components/DownloadButton'
 import { createStyle } from '@/utils/tools'
 // import { useSettingValue } from '@/store/setting/hook'
 import { useTheme } from '@/store/theme/hook'
@@ -29,6 +30,7 @@ export default memo(({ isHome = false }: { isHome?: boolean }) => {
         <PlayInfo isHome={isHome} />
       </View>
       <View style={styles.right}>
+        <DownloadButton />
         <ControlBtn />
       </View>
     </View>

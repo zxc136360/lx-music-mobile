@@ -1,3 +1,4 @@
+import { handleDownload as handleOnlineDownload } from '@/components/OnlineList/listAction'
 import { addListMusics, removeListMusics, updateListMusicPosition, updateListMusics } from '@/core/list'
 import { playList, playListById, playNext } from '@/core/player/player'
 import { addTempPlayList } from '@/core/player/tempPlayList'
@@ -70,6 +71,17 @@ export const handleUpdateMusicInfo = (listId: SelectInfo['listId'], musicInfo: L
   ])
 }
 
+
+export const handleDownload = async(musicInfo: SelectInfo['musicInfo'], selectedList: SelectInfo['selectedList'], onCancelSelect: () => void, options: Parameters<typeof handleOnlineDownload>[3] = {}, listId?: SelectInfo['listId']) => {
+  const sourceList = selectedList.length ? selectedList : [musicInfo]
+  const list = sourceList.filter((musicInfo): musicInfo is LX.Music.MusicInfoOnline => musicInfo.source != 'local')
+  const localCount = sourceList.length - list.length
+
+  if (list.length) await handleOnlineDownload(list[0], list.length == sourceList.length ? selectedList as LX.Music.MusicInfoOnline[] : list, onCancelSelect, { ...options, sourceListId: listId })
+  else if (selectedList.length) onCancelSelect()
+
+  if (localCount) toast(`已跳过 ${localCount} 首本地歌曲`)
+}
 
 export const handleShare = (musicInfo: SelectInfo['musicInfo']) => {
   shareMusic(settingState.setting['common.shareType'], settingState.setting['download.fileName'], musicInfo)

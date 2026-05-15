@@ -82,6 +82,7 @@ export const resetPlayerMusicInfo = () => {
     name: '',
     singer: '',
     album: '',
+    playSource: undefined,
   })
 }
 

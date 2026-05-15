@@ -16,6 +16,12 @@ import { getLocalFilePath } from '@/utils/music'
 import { readLyric, readPic } from '@/utils/localMediaMetadata'
 import { stat } from '@/utils/fs'
 
+interface MusicUrlInfo {
+  url: string
+  quality: LX.Quality | null
+  source: NonNullable<LX.Player.MusicInfo['playSource']>
+}
+
 const getOtherSourceByLocal = async<T>(musicInfo: LX.Music.MusicInfoLocal, handler: (infos: LX.Music.MusicInfoOnline[]) => Promise<T>) => {
   let result: LX.Music.MusicInfoOnline[] = []
   result = await getOtherSource(musicInfo)
@@ -104,16 +110,16 @@ export const getMusicUrlInfo = async({ musicInfo, isRefresh, allowToggleSource =
   isRefresh: boolean
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
   allowToggleSource?: boolean
-}): Promise<{ url: string, quality: LX.Quality | null }> => {
+}): Promise<MusicUrlInfo> => {
   if (!isRefresh) {
     const path = await getLocalFilePath(musicInfo)
-    if (path) return { url: path, quality: null }
+    if (path) return { url: path, quality: null, source: 'local' as const }
   }
 
   try {
     return await getOnlineOtherSourceMusicUrlByLocal(musicInfo, isRefresh).then(({ url, quality, isFromCache }) => {
       if (!isFromCache) void saveMusicUrl(musicInfo, quality, url)
-      return { url, quality }
+      return { url, quality, source: isFromCache ? 'cache' as const : 'online' as const }
     })
   } catch {}
 
@@ -123,7 +129,7 @@ export const getMusicUrlInfo = async({ musicInfo, isRefresh, allowToggleSource =
   return getOtherSourceByLocal(musicInfo, async(otherSource) => {
     return getOnlineOtherSourceMusicUrl({ musicInfos: [...otherSource], onToggleSource, isRefresh }).then(({ url, quality: targetQuality, musicInfo: targetMusicInfo, isFromCache }) => {
       if (!isFromCache) void saveMusicUrl(targetMusicInfo, targetQuality, url)
-      return { url, quality: targetQuality }
+      return { url, quality: targetQuality, source: isFromCache ? 'cache' as const : 'online' as const }
     })
   })
 }

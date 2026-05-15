@@ -466,6 +466,26 @@ declare global {
       'download.fileName': '歌名 - 歌手' | '歌手 - 歌名' | '歌名'
 
       /**
+       * 是否默认下载歌词
+       */
+      'download.isDownloadLyric': boolean
+
+      /**
+       * 是否默认下载封面
+       */
+      'download.isDownloadCover': boolean
+
+      /**
+       * 是否显示下载完成提示
+       */
+      'download.isShowCompleteToast': boolean
+
+      /**
+       * 是否自动清理失败任务
+       */
+      'download.isAutoCleanFailedTask': boolean
+
+      /**
        * 是否启用同步
        */
       'sync.enable': boolean

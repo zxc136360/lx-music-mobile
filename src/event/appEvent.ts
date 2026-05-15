@@ -14,6 +14,11 @@ import { type SearchType } from '@/store/search/state'
 //   // },
 // }
 
+export interface JumpListPositionTarget {
+  listId: string
+  index: number
+}
+
 export class AppEvent extends Event {
   // configUpdate() {
   //   this.emit('configUpdate')
@@ -174,14 +179,14 @@ export class AppEvent extends Event {
     this.emit('searchTypeChanged', type)
   }
 
-  jumpListPosition() {
+  jumpListPosition(target?: JumpListPositionTarget) {
     if (commonState.navActiveId == 'nav_love') {
-      this.emit('jumpListPosition')
+      this.emit('jumpListPosition', target)
     } else {
       global.lx.jumpMyListPosition = true
       setNavActiveId('nav_love')
       setTimeout(() => {
-        this.emit('jumpListPosition')
+        this.emit('jumpListPosition', target)
       }, 200)
     }
   }

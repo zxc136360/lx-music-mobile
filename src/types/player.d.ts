@@ -13,6 +13,7 @@ declare global {
         name: string
         singer: string
         album: string
+        playSource?: 'download' | 'cache' | 'online' | 'local'
       }
 
       interface LyricInfo extends LX.Music.LyricInfo {

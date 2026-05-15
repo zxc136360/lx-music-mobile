@@ -54,7 +54,12 @@ export const getPersistedUriList = async() => {
 
 export const readDir = async(path: string) => FileSystem.ls(path)
 
-export const unlink = async(path: string) => FileSystem.unlink(path)
+export const existsFile = async(path: string) => FileSystem.exists(path)
+
+export const unlink = async(path: string) => {
+  if (!await existsFile(path)) return
+  return FileSystem.unlink(path)
+}
 
 export const mkdir = async(path: string) => FileSystem.mkdir(path)
 
@@ -72,7 +77,9 @@ export const unGzipFile = async(fromPath: string, toPath: string) => FileSystem.
 export const gzipString = async(data: string, encoding?: Encoding) => FileSystem.gzipString(data, encoding)
 export const unGzipString = async(data: string, encoding?: Encoding) => FileSystem.unGzipString(data, encoding)
 
-export const existsFile = async(path: string) => FileSystem.exists(path)
+export const shareFile = async(_title: string, _path: string) => {
+  throw unsupportedError('File sharing')
+}
 
 export const rename = async(path: string, name: string) => FileSystem.rename(path, name)
 

@@ -17,7 +17,11 @@ import {
   getPicUrl as getLocalPicUrl,
   getLyricInfo as getLocalLyricInfo,
 } from './local'
-
+interface MusicUrlInfo {
+  url: string
+  quality: LX.Quality | null
+  source: NonNullable<LX.Player.MusicInfo['playSource']>
+}
 
 export const getMusicUrl = async({
   musicInfo,
@@ -47,7 +51,7 @@ export const getMusicUrlInfo = async({
   quality?: LX.Quality
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
   allowToggleSource?: boolean
-}): Promise<{ url: string, quality: LX.Quality | null }> => {
+}): Promise<MusicUrlInfo> => {
   if ('progress' in musicInfo) {
     return getDownloadMusicUrlInfo({ musicInfo, isRefresh, onToggleSource, allowToggleSource })
   } else if (musicInfo.source == 'local') {

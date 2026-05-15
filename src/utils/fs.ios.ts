@@ -1,5 +1,5 @@
 import RNFS from 'react-native-fs'
-import { NativeModules } from 'react-native'
+import { NativeModules, Share } from 'react-native'
 import pako from 'pako'
 
 export interface FileType {
@@ -126,6 +126,15 @@ export const gzipString = async(data: string, _encoding: Encoding = 'utf8') => g
 export const unGzipString = async(data: string, _encoding: Encoding = 'utf8') => unGzipBuffer(Buffer.from(data, 'base64')).toString('utf8')
 
 export const existsFile = async(path: string) => RNFS.exists(normalizePath(path))
+
+export const shareFile = async(title: string, path: string) => {
+  await Share.share({
+    title,
+    url: `file://${normalizePath(path)}`,
+  }, {
+    subject: title,
+  })
+}
 
 export const rename = async(path: string, name: string) => {
   const normalizedPath = normalizePath(path)

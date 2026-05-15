@@ -10,6 +10,7 @@ import { throttle } from './common'
 const fontSizeKey = storageDataPrefix.fontSize
 const themeKey = storageDataPrefix.theme
 const playInfoStorageKey = storageDataPrefix.playInfo
+const downloadListKey = storageDataPrefix.downloadList
 const userListKey = storageDataPrefix.userList
 const viewPrevStateKey = storageDataPrefix.viewPrevState
 const listScrollPositionKey = storageDataPrefix.listScrollPosition
@@ -339,6 +340,13 @@ export const removeListMusics = async(ids: string[]): Promise<void> => {
   // delaySaveListScrollPosition(global.lx.listScrollPosition)
 }
 
+
+export const getDownloadList = async(): Promise<LX.Download.ListItem[]> => {
+  return await getData<LX.Download.ListItem[]>(downloadListKey) ?? []
+}
+export const saveDownloadList = async(list: LX.Download.ListItem[]) => {
+  await saveData(downloadListKey, list)
+}
 
 export const getMusicUrl = async(musicInfo: LX.Music.MusicInfo, type: LX.Quality) => getData<string>(`${storageDataPrefix.musicUrl}${musicInfo.id}_${type}`).then((url) => url ?? '')
 export const saveMusicUrl = async(musicInfo: LX.Music.MusicInfo, type: LX.Quality, url: string) => saveData(`${storageDataPrefix.musicUrl}${musicInfo.id}_${type}`, url)

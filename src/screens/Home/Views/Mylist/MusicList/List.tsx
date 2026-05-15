@@ -12,6 +12,7 @@ import { createStyle, getRowInfo } from '@/utils/tools'
 import { usePlayInfo, usePlayMusicInfo } from '@/store/player/hook'
 import type { Position } from './ListMenu'
 import type { SelectMode } from './MultipleModeBar'
+import type { JumpListPositionTarget } from '@/event/appEvent'
 import { useActiveListId } from '@/store/list/hook'
 import { useSettingValue } from '@/store/setting/hook'
 
@@ -55,7 +56,7 @@ const List = forwardRef<ListType, ListProps>(({ onShowMenu, onMuiltSelectMode, o
   const [selectedList, setSelectedList] = useState<LX.List.ListMusics>([])
   const selectedListRef = useRef<LX.List.ListMusics>([])
   const currentListIdRef = useRef('')
-  const waitJumpListPositionRef = useRef(false)
+  const waitJumpListPositionRef = useRef<JumpListPositionTarget | true | null>(null)
   const rowInfo = useRef(getRowInfo())
   const isShowAlbumName = useSettingValue('list.isShowAlbumName')
   const isShowInterval = useSettingValue('list.isShowInterval')
@@ -117,8 +118,14 @@ const List = forwardRef<ListType, ListProps>(({ onShowMenu, onMuiltSelectMode, o
             isUpdateingList = false
             listFirstScrollRef.current = true
             if (waitJumpListPositionRef.current) {
-              waitJumpListPositionRef.current = false
-              if (playerState.playMusicInfo.listId == id && playerState.playInfo.playIndex > -1) {
+              const target = waitJumpListPositionRef.current
+              waitJumpListPositionRef.current = null
+              if (target && target !== true && target.listId == id) {
+                try {
+                  flatListRef.current?.scrollToIndex({ index: Math.floor(target.index / (rowInfo.current.rowNum ?? 1)), viewPosition: 0.3, animated: false })
+                  return
+                } catch {}
+              } else if (target && playerState.playMusicInfo.listId == id && playerState.playInfo.playIndex > -1) {
                 try {
                   flatListRef.current?.scrollToIndex({ index: Math.floor(playerState.playInfo.playIndex / (rowInfo.current.rowNum ?? 1)), viewPosition: 0.3, animated: false })
                   return
@@ -141,19 +148,22 @@ const List = forwardRef<ListType, ListProps>(({ onShowMenu, onMuiltSelectMode, o
       })
     }
 
-    const handleJumpPosition = () => {
+    const handleJumpPosition = (target?: JumpListPositionTarget) => {
       requestAnimationFrame(() => {
-        const listId = playerState.playMusicInfo.listId
+        const listId = target?.listId ?? playerState.playMusicInfo.listId
         if (!listId) return
         if (listId != listState.activeListId) {
           setActiveList(listId)
-          if (currentListIdRef.current != listId) waitJumpListPositionRef.current = true
-        } else if (playerState.playInfo.playIndex > -1) {
-          if (isUpdateingList) waitJumpListPositionRef.current = true
-          else {
-            try {
-              flatListRef.current?.scrollToIndex({ index: Math.floor(playerState.playInfo.playIndex / (rowInfo.current.rowNum ?? 1)), viewPosition: 0.3, animated: true })
-            } catch {}
+          if (currentListIdRef.current != listId) waitJumpListPositionRef.current = target ?? true
+        } else {
+          const index = target?.index ?? playerState.playInfo.playIndex
+          if (index > -1) {
+            if (isUpdateingList) waitJumpListPositionRef.current = target ?? true
+            else {
+              try {
+                flatListRef.current?.scrollToIndex({ index: Math.floor(index / (rowInfo.current.rowNum ?? 1)), viewPosition: 0.3, animated: true })
+              } catch {}
+            }
           }
         }
       })

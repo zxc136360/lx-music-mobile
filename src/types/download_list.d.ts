@@ -48,8 +48,17 @@ declare namespace LX {
       total: number
       progress: number
       speed: string
+      lyricPath?: string
+      lyricJsonPath?: string
+      lyricLrcPath?: string
+      coverPath?: string
+      error?: string
+      createdAt?: number
+      updatedAt?: number
+      jobId?: number | string
       metadata: {
         musicInfo: LX.Music.MusicInfoOnline
+        sourceListId?: string
         url: string | null
         quality: LX.Quality
         ext: FileExt
