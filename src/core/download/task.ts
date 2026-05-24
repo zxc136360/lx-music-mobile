@@ -19,6 +19,9 @@ import { ensureDownloadDirs } from './paths'
 export interface CreateDownloadTaskOptions {
   quality?: LX.Quality
   sourceListId?: string
+  sourceListName?: string
+  listId?: string
+  listName?: string
 }
 
 const createTaskId = (musicInfo: LX.Music.MusicInfoOnline, quality: LX.Quality) => `${musicInfo.source}_${musicInfo.id}_${quality}`
@@ -105,8 +108,22 @@ const runDownloadTask = async(id: string) => {
 export const createDownloadTask = async(musicInfo: LX.Music.MusicInfoOnline, options: CreateDownloadTaskOptions = {}) => {
   await ensureDownloadDirs()
   const resource = await resolveDownloadResource(musicInfo, options.quality)
+  const sourceListId = options.sourceListId ?? options.listId
+  const sourceListName = options.sourceListName ?? options.listName
   const existsTask = findDownloadTaskByMusic(musicInfo, resource.quality)
-  if (existsTask) return existsTask
+  if (existsTask) {
+    if (sourceListId != null || sourceListName != null) {
+      return updateDownloadTask(existsTask.id, task => ({
+        ...task,
+        metadata: {
+          ...task.metadata,
+          sourceListId: task.metadata.sourceListId ?? sourceListId,
+          sourceListName: task.metadata.sourceListName ?? sourceListName,
+        },
+      })) ?? existsTask
+    }
+    return existsTask
+  }
 
   const now = Date.now()
   const task = upsertDownloadTask({
@@ -126,7 +143,8 @@ export const createDownloadTask = async(musicInfo: LX.Music.MusicInfoOnline, opt
     updatedAt: now,
     metadata: {
       musicInfo,
-      sourceListId: options.sourceListId,
+      sourceListId,
+      sourceListName,
       url: resource.url,
       quality: resource.quality,
       ext: resource.ext,

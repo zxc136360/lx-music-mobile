@@ -5,6 +5,22 @@ import { confirmDialog } from '@/utils/tools'
 const searchFilterRxp = /\s|'|\.|,|，|&|"|、|\(|\)|（|）|`|~|-|<|>|\||\/|\]|\[|!|！|:|：|;|；|\?|？|·/g
 const normalizeSearchText = (str: string | number | undefined | null) => String(str ?? '').replace(searchFilterRxp, '').toLowerCase()
 
+export const ungroupedDownloadGroupId = '__ungrouped__'
+
+export const downloadStatusOptions: Array<{ id: LX.Download.DownloadTaskStatus, label: string }> = [
+  { id: 'run', label: '下载中' },
+  { id: 'waiting', label: '等待中' },
+  { id: 'pause', label: '已暂停' },
+  { id: 'error', label: '错误' },
+  { id: 'completed', label: '已完成' },
+]
+
+export interface DownloadListGroup {
+  id: string
+  name: string
+  count: number
+}
+
 const getSingerText = (singer: LX.Music.MusicInfoOnline['singer']) => {
   if (Array.isArray(singer)) return singer.join('、')
   return singer || ''
@@ -21,6 +37,64 @@ const getTaskSearchText = (item: LX.Download.ListItem) => {
     item.statusText,
     item.status,
   ].join('')
+}
+
+const getDownloadGroupId = (item: LX.Download.ListItem) => item.metadata.sourceListId ?? ungroupedDownloadGroupId
+const getDownloadGroupName = (item: LX.Download.ListItem) => {
+  if (getDownloadGroupId(item) == ungroupedDownloadGroupId) return '未分组'
+  return item.metadata.sourceListName ?? item.metadata.sourceListId ?? '未分组'
+}
+const getDownloadSortTime = (item: LX.Download.ListItem) => item.createdAt ?? item.updatedAt ?? 0
+
+export const sortDownloadList = (list: LX.Download.ListItem[]) => {
+  return [...list].sort((left, right) => {
+    const timeDiff = getDownloadSortTime(right) - getDownloadSortTime(left)
+    if (timeDiff) return timeDiff
+
+    const updatedDiff = (right.updatedAt ?? 0) - (left.updatedAt ?? 0)
+    if (updatedDiff) return updatedDiff
+
+    return left.id.localeCompare(right.id)
+  })
+}
+
+export const getDownloadListGroups = (list: LX.Download.ListItem[]) => {
+  const groupMap = new Map<string, DownloadListGroup>()
+
+  for (const item of list) {
+    const id = getDownloadGroupId(item)
+    const current = groupMap.get(id)
+    if (current) {
+      current.count += 1
+      continue
+    }
+
+    groupMap.set(id, {
+      id,
+      name: getDownloadGroupName(item),
+      count: 1,
+    })
+  }
+
+  return [...groupMap.values()].sort((left, right) => {
+    if (left.id == ungroupedDownloadGroupId) return -1
+    if (right.id == ungroupedDownloadGroupId) return 1
+    return left.name.localeCompare(right.name, 'zh-Hans-CN')
+  })
+}
+
+export const filterDownloadList = (
+  list: LX.Download.ListItem[],
+  selectedGroupIds: Set<string>,
+  selectedStatuses: Set<LX.Download.DownloadTaskStatus>,
+) => {
+  if (!selectedGroupIds.size && !selectedStatuses.size) return list
+
+  return list.filter(item => {
+    if (selectedGroupIds.size && !selectedGroupIds.has(getDownloadGroupId(item))) return false
+    if (selectedStatuses.size && !selectedStatuses.has(item.status)) return false
+    return true
+  })
 }
 
 export const searchDownloadList = (list: LX.Download.ListItem[], text: string) => {

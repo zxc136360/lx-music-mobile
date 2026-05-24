@@ -23,6 +23,7 @@ export interface ListMenuProps {
   onRename: (listInfo: LX.List.UserListInfo) => void
   onSort: (listInfo: LX.List.MyListInfo) => void
   onDuplicateMusic: (listInfo: LX.List.MyListInfo) => void
+  onDownloadAll: (listInfo: LX.List.MyListInfo) => void
   onImport: (listInfo: LX.List.MyListInfo, index: number) => void
   onExport: (listInfo: LX.List.MyListInfo, index: number) => void
   onSync: (listInfo: LX.List.UserListInfo) => void
@@ -42,6 +43,7 @@ export default forwardRef<ListMenuType, ListMenuProps>(({
   onRename,
   onSort,
   onDuplicateMusic,
+  onDownloadAll,
   onImport,
   onExport,
   onSync,
@@ -91,6 +93,7 @@ export default forwardRef<ListMenuType, ListMenuProps>(({
       { action: 'rename', disabled: !rename, label: t('list_rename') },
       { action: 'sort', label: t('list_sort') },
       { action: 'duplicateMusic', label: t('lists__duplicate') },
+      { action: 'downloadAll', disabled: !local_file, label: '下载全部' },
       { action: 'local_file', disabled: !local_file, label: t('list_select_local_file') },
       { action: 'sync', disabled: !sync || !local_file, label: t('list_sync') },
       { action: 'import', label: t('list_import') },
@@ -114,6 +117,9 @@ export default forwardRef<ListMenuType, ListMenuProps>(({
         break
       case 'duplicateMusic':
         onDuplicateMusic(selectInfo.listInfo)
+        break
+      case 'downloadAll':
+        onDownloadAll(selectInfo.listInfo)
         break
       case 'import':
         onImport(selectInfo.listInfo, selectInfo.index)

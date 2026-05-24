@@ -10,6 +10,8 @@ import BackgroundTimer from 'react-native-background-timer'
 import { temporaryDirectoryPath, unlink, type FileType } from '@/utils/fs'
 import { Platform } from 'react-native'
 import { shareFile } from '@/utils/nativeModules/utils'
+import { createDownloadTask } from '@/core/download'
+import { findDownloadTaskByMusic } from '@/core/download/state'
 
 export const handleRemove = (listInfo: LX.List.UserListInfo) => {
   void confirmDialog({
@@ -103,6 +105,62 @@ export const handleSync = (listInfo: LX.List.UserListInfo) => {
       toast(global.i18n.t('list_update_error', { name: listInfo.name }))
     })
   })
+}
+
+export const handleDownloadAll = async(listInfo: LX.List.MyListInfo, quality: LX.Quality) => {
+  try {
+    const list = await getListMusics(listInfo.id)
+    if (!list.length) {
+      toast('当前列表为空', 'long')
+      return
+    }
+
+    const onlineList = list.filter((musicInfo): musicInfo is LX.Music.MusicInfoOnline => musicInfo.source != 'local')
+    const localCount = list.length - onlineList.length
+    if (!onlineList.length) {
+      toast('当前列表没有可下载的在线歌曲', 'long')
+      return
+    }
+
+    let added = 0
+    let skipped = 0
+    let failed = 0
+    for (const musicInfo of onlineList) {
+      const existsTask = findDownloadTaskByMusic(musicInfo, quality)
+      if (existsTask) {
+        skipped++
+        continue
+      }
+
+      try {
+        await createDownloadTask(musicInfo, {
+          quality,
+          sourceListId: listInfo.id,
+          sourceListName: listInfo.name,
+        })
+        added++
+      } catch (error) {
+        log.error(error)
+        failed++
+      }
+    }
+
+    const messages = []
+    if (added) messages.push(`已添加 ${added} 个下载任务`)
+    if (skipped) messages.push(`已跳过 ${skipped} 个已有任务`)
+    if (localCount) messages.push(`已跳过 ${localCount} 首本地歌曲`)
+    if (failed) messages.push(`${failed} 首歌曲下载任务创建失败`)
+
+    if (!messages.length) {
+      toast('当前列表没有可下载的在线歌曲', 'long')
+      return
+    }
+
+    toast(messages.join('，'), failed ? 'long' : undefined)
+  } catch (error) {
+    log.error(error)
+    toast('批量下载失败', 'long')
+  }
 }
 
 export const buildLocalMusicInfoByFilePath = (file: FileType): LX.Music.MusicInfoLocal => {

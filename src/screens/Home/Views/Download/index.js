@@ -8,7 +8,14 @@ import List from './List'
 import Empty from './Empty'
 import ListSearchBar from './ListSearchBar'
 import ListDownloadSearch from './ListDownloadSearch'
-import { handleRemoveDownloadTasks } from './listAction'
+import FilterBar from './FilterBar'
+import {
+  downloadStatusOptions,
+  filterDownloadList,
+  getDownloadListGroups,
+  handleRemoveDownloadTasks,
+  sortDownloadList,
+} from './listAction'
 
 export default () => {
   const theme = useTheme()
@@ -19,9 +26,15 @@ export default () => {
   const [list, setList] = useState(() => [...getDownloadList()])
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [selectedGroupIds, setSelectedGroupIds] = useState(() => new Set())
+  const [selectedStatuses, setSelectedStatuses] = useState(() => new Set())
 
+  const sortedList = useMemo(() => sortDownloadList(list), [list])
+  const groups = useMemo(() => getDownloadListGroups(sortedList), [sortedList])
+  const filteredList = useMemo(() => filterDownloadList(sortedList, selectedGroupIds, selectedStatuses), [selectedGroupIds, selectedStatuses, sortedList])
   const selectedCount = selectedIds.size
-  const isAllSelected = !!list.length && selectedCount == list.length
+  const visibleSelectedCount = useMemo(() => filteredList.reduce((count, item) => count + (selectedIds.has(item.id) ? 1 : 0), 0), [filteredList, selectedIds])
+  const isAllSelected = !!filteredList.length && visibleSelectedCount == filteredList.length
 
   const updateList = useCallback(() => {
     setList([...getDownloadList()])
@@ -93,12 +106,21 @@ export default () => {
   }, [])
 
   const handleSelectAll = useCallback(() => {
-    if (isAllSelected) {
-      setSelectedIds(new Set())
-      return
-    }
-    setSelectedIds(new Set(list.map(item => item.id)))
-  }, [isAllSelected, list])
+    if (!filteredList.length) return
+    setSelectedIds(prevIds => {
+      const nextIds = new Set(prevIds)
+      if (isAllSelected) {
+        filteredList.forEach(item => {
+          nextIds.delete(item.id)
+        })
+      } else {
+        filteredList.forEach(item => {
+          nextIds.add(item.id)
+        })
+      }
+      return nextIds
+    })
+  }, [filteredList, isAllSelected])
 
   const handleCancelMultiSelect = useCallback(() => {
     setIsMultiSelectMode(false)
@@ -113,37 +135,69 @@ export default () => {
     setSelectedIds(new Set())
   }, [selectedIds])
 
+  const handleToggleGroup = useCallback((groupId) => {
+    setSelectedGroupIds(prevIds => {
+      const nextIds = new Set(prevIds)
+      if (nextIds.has(groupId)) nextIds.delete(groupId)
+      else nextIds.add(groupId)
+      return nextIds
+    })
+  }, [])
+
+  const handleToggleStatus = useCallback((status) => {
+    setSelectedStatuses(prevStatuses => {
+      const nextStatuses = new Set(prevStatuses)
+      if (nextStatuses.has(status)) nextStatuses.delete(status)
+      else nextStatuses.add(status)
+      return nextStatuses
+    })
+  }, [])
+
+  const handleResetFilters = useCallback(() => {
+    setSelectedGroupIds(new Set())
+    setSelectedStatuses(new Set())
+  }, [])
+
   const listContent = useMemo(() => {
-    if (!list.length) return <Empty />
+    if (!filteredList.length) return <Empty />
     return (
       <List
         ref={listRef}
-        list={list}
+        list={filteredList}
         isMultiSelectMode={isMultiSelectMode}
         selectedIds={selectedIds}
         onToggleSelect={handleToggleSelect}
         onEnterMultiSelect={handleEnterMultiSelect}
       />
     )
-  }, [handleEnterMultiSelect, handleToggleSelect, isMultiSelectMode, list, selectedIds])
+  }, [filteredList, handleEnterMultiSelect, handleToggleSelect, isMultiSelectMode, selectedIds])
 
   return (
     <View style={styles.container}>
       <View style={[styles.header, { borderBottomColor: theme['c-border-background'] }]}>
         <View style={styles.headerInfo}>
           <Text size={18}>下载</Text>
-          <Text size={12} color={theme['c-font-label']}>{isMultiSelectMode ? `已选择 ${selectedCount} 个任务` : `共 ${list.length} 个任务`}</Text>
+          <Text size={12} color={theme['c-font-label']}>{isMultiSelectMode ? `已选择 ${selectedCount} 个任务` : `共 ${filteredList.length} 个任务`}</Text>
         </View>
         <TouchableOpacity style={styles.headerButton} onPress={handleShowSearch}>
           <Text size={13} color={theme['c-primary-font']}>搜索</Text>
         </TouchableOpacity>
         <ListSearchBar ref={listSearchBarRef} onSearch={handleSearch} onExitSearch={handleExitSearch} />
       </View>
+      <FilterBar
+        groups={groups}
+        statuses={downloadStatusOptions}
+        selectedGroupIds={selectedGroupIds}
+        selectedStatuses={selectedStatuses}
+        onToggleGroup={handleToggleGroup}
+        onToggleStatus={handleToggleStatus}
+        onReset={handleResetFilters}
+      />
       {isMultiSelectMode ? (
         <View style={[styles.selectBar, { borderBottomColor: theme['c-border-background'] }]}>
-          <TouchableOpacity style={styles.selectButton} onPress={handleSelectAll}>
-            <Icon name={isAllSelected ? 'minus-box' : 'checkbox-blank-outline'} size={18} color={theme['c-font']} />
-            <Text style={styles.selectButtonText} size={13}>{isAllSelected ? '取消全选' : '全选'}</Text>
+          <TouchableOpacity style={styles.selectButton} onPress={handleSelectAll} disabled={!filteredList.length}>
+            <Icon name={isAllSelected ? 'minus-box' : 'checkbox-blank-outline'} size={18} color={filteredList.length ? theme['c-font'] : theme['c-font-label']} />
+            <Text style={styles.selectButtonText} size={13} color={filteredList.length ? theme['c-font'] : theme['c-font-label']}>{isAllSelected ? '取消全选' : '全选'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.selectButton} onPress={handleRemoveSelected} disabled={!selectedCount}>
             <Icon name="remove" size={18} color={selectedCount ? theme['c-primary-background-active'] : theme['c-font-label']} />
@@ -156,7 +210,7 @@ export default () => {
       ) : null}
       <View style={styles.listContent} onLayout={handleListLayout}>
         {listContent}
-        {list.length ? <ListDownloadSearch ref={listDownloadSearchRef} list={list} onScrollToInfo={handleScrollToInfo} /> : null}
+        {filteredList.length ? <ListDownloadSearch ref={listDownloadSearchRef} list={filteredList} onScrollToInfo={handleScrollToInfo} /> : null}
       </View>
     </View>
   )
