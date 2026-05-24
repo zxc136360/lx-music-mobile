@@ -3,7 +3,8 @@ import { Modal, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, View } f
 import Text from '@/components/common/Text'
 import { Icon } from '@/components/common/Icon'
 import { useTheme } from '@/store/theme/hook'
-import { exportDownloadTask, locateDownloadTaskSource, pauseDownloadTask, redownloadAssets, removeDownloadTask, resumeDownloadTask, retryDownloadTask } from '@/core/download'
+import { exportDownloadTask, locateDownloadTaskSource, pauseDownloadTask, redownloadAssets, resumeDownloadTask, retryDownloadTask } from '@/core/download'
+import { handleRemoveDownloadTask } from './listAction'
 
 interface Props {
   item: LX.Download.ListItem
@@ -37,7 +38,7 @@ export default memo(({ item, visible, onClose }: Props) => {
     { label: global.i18n.t('download_action_locate'), icon: 'play', action: async() => { return locateDownloadTaskSource(item.id) } },
     { label: '分享/导出', icon: 'share', action: async() => { return exportDownloadTask(item.id) } },
     { label: '补全歌词封面', icon: 'download-2', action: async() => { return redownloadAssets(item.id) } },
-    { label: '删除任务', icon: 'remove', action: async() => { return removeDownloadTask(item.id) }, danger: true },
+    { label: '删除任务', icon: 'remove', action: async() => { return handleRemoveDownloadTask(item) }, danger: true },
   )
 
   const handlePress = useCallback((action: ActionItem['action']) => {

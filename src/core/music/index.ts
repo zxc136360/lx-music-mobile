@@ -2,6 +2,7 @@
 //   const filePath = path.join(appSetting['download.savePath'], targetSong.metadata.fileName)
 //   // console.log(filePath)
 
+import { getDownloadList } from '@/core/download/state'
 import {
   getMusicUrlInfo as getOnlineMusicUrlInfo,
   getPicUrl as getOnlinePicUrl,
@@ -11,6 +12,7 @@ import {
   getMusicUrlInfo as getDownloadMusicUrlInfo,
   getPicUrl as getDownloadPicUrl,
   getLyricInfo as getDownloadLyricInfo,
+  getCompletedDownloadMusicUrlInfo,
 } from './download'
 import {
   getMusicUrlInfo as getLocalMusicUrlInfo,
@@ -21,6 +23,16 @@ interface MusicUrlInfo {
   url: string
   quality: LX.Quality | null
   source: NonNullable<LX.Player.MusicInfo['playSource']>
+}
+
+const getDownloadedMusicUrlInfo = async(musicInfo: LX.Music.MusicInfoOnline) => {
+  for (const task of getDownloadList()) {
+    if (task.metadata.musicInfo.source != musicInfo.source) continue
+    if (task.metadata.musicInfo.id != musicInfo.id) continue
+    const urlInfo = await getCompletedDownloadMusicUrlInfo(task)
+    if (urlInfo) return urlInfo
+  }
+  return null
 }
 
 export const getMusicUrl = async({
@@ -57,6 +69,8 @@ export const getMusicUrlInfo = async({
   } else if (musicInfo.source == 'local') {
     return getLocalMusicUrlInfo({ musicInfo, isRefresh, onToggleSource, allowToggleSource })
   } else {
+    const downloadUrlInfo = await getDownloadedMusicUrlInfo(musicInfo)
+    if (downloadUrlInfo) return downloadUrlInfo
     return getOnlineMusicUrlInfo({ musicInfo, isRefresh, quality, onToggleSource, allowToggleSource })
   }
 }

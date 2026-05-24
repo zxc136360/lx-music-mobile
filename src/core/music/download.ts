@@ -54,6 +54,13 @@ const getLocalLyricInfo = async(musicInfo: LX.Download.ListItem) => {
   return buildLyricInfo(parseLyric(await readFile(lrcPath)))
 }
 
+export const getCompletedDownloadMusicUrlInfo = async(musicInfo: LX.Download.ListItem) => {
+  if (musicInfo.status != 'completed') return null
+  const urlInfo = await getLocalMusicUrlInfo(musicInfo)
+  if (!urlInfo) return null
+  return { ...urlInfo, source: 'download' as const }
+}
+
 export const getMusicUrl = async({ musicInfo, isRefresh, allowToggleSource = true, onToggleSource = () => {} }: {
   musicInfo: LX.Download.ListItem
   isRefresh: boolean
